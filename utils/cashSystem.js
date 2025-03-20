@@ -1,41 +1,40 @@
-const fs = require("fs");
-const path = require("path");
+const mongoose = require("mongoose");
+const User = require("../models/user");
 
-// Speicherpfad für User-Daten
-const dataFile = path.join(__dirname, "../data/users.json");
+// MongoDB verbinden (Lokal oder Remote)
+mongoose.connect("mongodb://localhost:27017/discord_casino", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
-// Lade oder initialisiere die JSON-Datei
-function loadData() {
-  if (!fs.existsSync(dataFile)) return {};
-  return JSON.parse(fs.readFileSync(dataFile, "utf8"));
+// Guthaben abrufen oder initialisieren
+async function getBalance(userId) {
+  let user = await User.findOne({ userId });
+  if (!user) {
+    user = new User({ userId, credits: 1000, bank: 0, bankLimit: 1000 });
+    await user.save();
+  }
+  return user.credits;
 }
 
-// Speichert die Daten in die JSON-Datei
-function saveData(data) {
-  fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
+// Guthaben setzen
+async function setBalance(userId, amount) {
+  await User.findOneAndUpdate({ userId }, { credits: Math.max(0, amount) }, { upsert: true });
 }
 
-// Holt das Guthaben eines Users
-function getBalance(userId) {
-  const users = loadData();
-  return users[userId]?.credits || 500; // Standard-Guthaben: 1000 Credits
+// Guthaben hinzufügen
+async function addBalance(userId, amount) {
+  const user = await User.findOneAndUpdate(
+    { userId },
+    { $inc: { credits: amount } },
+    { upsert: true, new: true }
+  );
+  return user.credits;
 }
 
-// Setzt ein neues Guthaben für einen User
-function setBalance(userId, amount) {
-  const users = loadData();
-  users[userId] = { credits: Math.max(0, amount) }; // Kein negatives Guthaben
-  saveData(users);
-}
-
-// Fügt Guthaben hinzu
-function addBalance(userId, amount) {
-  setBalance(userId, getBalance(userId) + amount);
-}
-
-// Zieht Guthaben ab
-function removeBalance(userId, amount) {
-  setBalance(userId, getBalance(userId) - amount);
+// Guthaben abziehen
+async function removeBalance(userId, amount) {
+  return addBalance(userId, -amount);
 }
 
 module.exports = { getBalance, setBalance, addBalance, removeBalance };
