@@ -1,190 +1,197 @@
-/******************************************************************
- * Professioneller Slot-Command
- * 
- * Funktionalität:
- * - Animiert drei Slot-Reels nacheinander (von links nach rechts).
- * - Berechnet Gewinne für drei gleiche Symbole (3er Match) und
- *   für zwei angrenzende gleiche Symbole (2er Match).
- * - Nutzt einen Hausvorteilsfaktor, sodass langfristig im Schnitt 
- *   ca. 49% des Einsatzes als Gewinn ausgezahlt werden.
- * - Aktualisiert das Guthaben und XP des Spielers (via MongoDB Cash-System).
- * - Zeigt am Ende ein schön gestaltetes Embed mit:
- *    • Endergebnis (Slot-Symbole)
- *    • Gewinn/Verlust (Profit)
- *    • Neues Guthaben
- *    • Gewonnene XP
- * 
- * Hinweis: Dieser Command wird über !slot oder !s aufgerufen.
- ******************************************************************/
-
-const { EmbedBuilder } = require("discord.js");
-const { getBalance, removeBalance, addBalance } = require("../utils/cashSystem");
-
-// ===================== Konfiguration Slot-Maschine =====================
-
-// Gewichtete Symbol-Liste: Häufigkeit steuert Gewinnchance
+const {EmbedBuilder} = require("discord.js");
+const {getBalance, removeBalance, addBalance} = require("../utils/cashSystem");
+const {addXP} = require("../utils/xpSystem");
 const weightedSymbols = [
-  "🍒", "🍒", "🍒", "🍒", "🍒", "🍒", "🍒", "🍒", "🍒", "🍒",  // 10x 🍒
-  "🍋", "🍋", "🍋", "🍋", "🍋", "🍋", "🍋", "🍋",                // 8x 🍋
-  "🍉", "🍉", "🍉", "🍉", "🍉",                                   // 5x 🍉
-  "💎", "💎", "💎",                                             // 3x 💎
-  "💰", "💰",                                                  // 2x 💰
-  "🥇",                                                        // 1x 🥇
-  "💯",                                                        // 1x 💯
-  "🎰", "🎰", "🎰",                                             // 3x 🎰
-  "🔔", "🔔", "🔔"                                              // 3x 🔔
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍒",
+"🍋",
+"🍋",
+"🍋",
+"🍋",
+"🍋",
+"🍋",
+"🍋",
+"🍋",
+"🍉",
+"🍉",
+"🍉",
+"🍉",
+"🍉",
+"💎",
+"💎",
+"💎",
+"💰",
+"💰",
+"🥇",
+"💯",
+"🎰",
+"🎰",
+"🔔",
+"🔔",
+"🍇",
+"🍏"
 ];
-// Gesamthäufigkeit: 10+8+5+3+2+1+1+3+3 = 36
-
-// Multiplikatoren für 3er Match (alle Symbole gleich)
 const threeMultiplier = {
-  "🍒": 3,
-  "🍋": 5,
-  "🍉": 10,
-  "💎": 25,
-  "💰": 100,
-  "🥇": 1000,
-  "💯": 10000,  // Jackpot, extrem selten
-  "🎰": 8,
-  "🔔": 8
+"🍒":3,
+"🍋":5,
+"🍉":10,
+"💎":25,
+"💰":100,
+"🥇":1000,
+"💯":10000,
+"🎰":8,
+"🔔":8,
+"🍇":2,
+"🍏":2
 };
-
-// Multiplikatoren für 2er Match (nur angrenzend)
 const twoMultiplier = {
-  "🍒": 1.2,
-  "🍋": 1.5,
-  "🍉": 2,
-  "💎": 3,
-  "💰": 5,
-  "🥇": 10,
-  "💯": 20,
-  "🎰": 1.5,
-  "🔔": 1.5
+"🍒":1.5,
+"🍋":2,
+"🍉":3,
+"💎":4,
+"💰":5,
+"🥇":10,
+"💯":20,
+"🎰":2,
+"🔔":2,
+"🍇":1.2,
+"🍏":1.2
 };
-
-// Hausvorteil (Faktor, mit dem der Gewinn reduziert wird)
-const houseEdgeFactor = 0.5;
-
-// ===================== Hilfsfunktionen =====================
-
-// Verzögerungsfunktion (Sleep) – gibt Promise zurück
+const houseEdgeFactor = 0.49;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-// Erstellt ein Embed für den Slot-Status (ohne überflüssige Status-Felder)
-function createSlotEmbed(symbolsArray, bet, userId, customStatus) {
-  const display = `---------------------\n| ${symbolsArray[0]} | ${symbolsArray[1]} | ${symbolsArray[2]} |\n---------------------`;
-  const embed = new EmbedBuilder()
-    .setTitle("🎰 Slot Machine")
-    .setDescription(`Einsatz: **${bet} Credits**\n${display}\n${customStatus}`)
-    .setColor("Gold")
-    .setTimestamp();
-  return embed;
+function createSlotEmbed(symbolsArray,bet,userId) {
+let display="---------------------\n| "+symbolsArray[0]+" | "+symbolsArray[1]+" | "+symbolsArray[2]+" |\n---------------------";
+let embed = new EmbedBuilder();
+embed.setTitle("🎰 Slot Machine");
+embed.setDescription("Einsatz: "+bet+" Credits\n"+display);
+embed.setColor("Gold");
+embed.setTimestamp();
+return embed;
 }
-
-// Dreht einen einzelnen Reel mit Animation
-async function spinReel(reelIndex, currentSymbols, sentMessage, bet, userId) {
-  const steps = 10; // Anzahl der Animation-Updates pro Reel
-  for (let i = 0; i < steps; i++) {
-    currentSymbols[reelIndex] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
-    const embed = createSlotEmbed(currentSymbols, bet, userId, "Drehe...");
-    await sentMessage.edit({ embeds: [embed] });
-    await sleep(200); // Kürzere Verzögerung für schnellere Animation (200ms)
-  }
-  // Letzter Fix: Bestimme finales Symbol
-  const finalSymbol = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
-  currentSymbols[reelIndex] = finalSymbol;
-  const embed = createSlotEmbed(currentSymbols, bet, userId, "Fertig");
-  await sentMessage.edit({ embeds: [embed] });
-  return finalSymbol;
+async function spinReel(reelIndex,currentSymbols,sentMessage,bet,userId) {
+const steps = 8;
+for(let i=0;i<steps;i++){
+currentSymbols[reelIndex]=weightedSymbols[Math.floor(Math.random()*weightedSymbols.length)];
+let embed = createSlotEmbed(currentSymbols,bet,userId);
+await sentMessage.edit({embeds:[embed]});
+await sleep(200);
 }
-
-// Berechnet den Gewinn basierend auf dem Ergebnis der Slots
-function evaluateResult(symbolsArray, bet) {
-  // Prüfe, ob alle drei Symbole gleich sind
-  if (symbolsArray[0] === symbolsArray[1] && symbolsArray[1] === symbolsArray[2]) {
-    const symbol = symbolsArray[0];
-    const multiplier = threeMultiplier[symbol] || 0;
-    return bet * multiplier * houseEdgeFactor;
-  }
-  // Prüfe, ob die ersten beiden oder die letzten beiden gleich sind
-  if (symbolsArray[0] === symbolsArray[1]) {
-    const multiplier = twoMultiplier[symbolsArray[0]] || 0;
-    return bet * multiplier * houseEdgeFactor;
-  }
-  if (symbolsArray[1] === symbolsArray[2]) {
-    const multiplier = twoMultiplier[symbolsArray[1]] || 0;
-    return bet * multiplier * houseEdgeFactor;
-  }
-  // Kein Gewinn
-  return 0;
+let finalSymbol = weightedSymbols[Math.floor(Math.random()*weightedSymbols.length)];
+currentSymbols[reelIndex]=finalSymbol;
+let embed = createSlotEmbed(currentSymbols,bet,userId);
+await sentMessage.edit({embeds:[embed]});
+return finalSymbol;
 }
-
-// Erstellt das finale Ergebnis-Embed mit Gewinn, Profit, neuen Guthaben und XP
-async function createResultEmbed(sentMessage, currentSymbols, bet, userId, winnings, xpGain, newBalance) {
-  const profit = winnings - bet;
-  const display = `---------------------\n| ${currentSymbols[0]} | ${currentSymbols[1]} | ${currentSymbols[2]} |\n---------------------`;
-  const embed = new EmbedBuilder()
-    .setTitle("🎰 Slot Machine Result")
-    .setDescription(`Einsatz: **${bet} Credits**\n${display}`)
-    .addFields(
-      { name: "Ergebnis", value: winnings > 0 ? `Gewinn: **${winnings} Credits**` : "❌ Keine Gewinne", inline: true },
-      { name: "Profit", value: `${profit} Credits`, inline: true },
-      { name: "XP", value: `+${xpGain}`, inline: true },
-      { name: "Neues Guthaben", value: `**${newBalance} Credits**`, inline: false }
-    )
-    .setColor(winnings > 0 ? "Green" : "Red")
-    .setTimestamp();
-  return embed;
+function evaluateResult(symbolsArray,bet) {
+if(symbolsArray[0]===symbolsArray[1] && symbolsArray[1]===symbolsArray[2]){
+let multiplier = threeMultiplier[symbolsArray[0]]||0;
+return bet*multiplier*houseEdgeFactor;
 }
-
-// ===================== Haupt-Command =====================
-
-module.exports = {
-  name: "slot",
-  description: "Spiele die Slot Machine. Verwendung: !slot <Einsatz>",
-  aliases: ["s"],
-  
-  async execute(message, args, client) {
-    const userId = message.author.id;
-    const bet = parseInt(args[0]) || 100;
-    
-    if (bet <= 0 || isNaN(bet)) {
-      return message.reply("❌ Ungültiger Einsatz! Bitte einen positiven Betrag eingeben.");
-    }
-    
-    // Cash-System (MongoDB)
-    const { getBalance, removeBalance, addBalance } = require("../utils/cashSystem");
-    const currentBalance = await getBalance(userId);
-    if (currentBalance < bet) {
-      return message.reply("❌ Nicht genug Credits!");
-    }
-    
-    // Einsatz abziehen
-    await removeBalance(userId, bet);
-    
-    let currentSymbols = ["❓", "❓", "❓"];
-    let embed = createSlotEmbed(currentSymbols, bet, userId, "Los geht's!");
-    const sentMessage = await message.channel.send({ embeds: [embed] });
-    
-    // Animation: Reels nacheinander drehen
-    for (let i = 0; i < 3; i++) {
-      await spinReel(i, currentSymbols, sentMessage, bet, userId);
-    }
-    
-    // Gewinn berechnen
-    const winnings = evaluateResult(currentSymbols, bet);
-    const xpGain = Math.floor(bet / 10) + Math.floor(Math.random() * 5);
-    
-    // Guthaben aktualisieren
-    await addBalance(userId, winnings);
-    const newBalance = await getBalance(userId);
-    
-    // Endgültiges Embed erstellen
-    const resultEmbed = await createResultEmbed(sentMessage, currentSymbols, bet, userId, winnings, xpGain, newBalance);
-    await sentMessage.edit({ embeds: [resultEmbed] });
-    
-    // Logge das Ergebnis (zur Debugging-/Statistikzwecken)
-    console.log(`Slot-Ergebnis für ${userId}: ${currentSymbols.join(" | ")} | Einsatz: ${bet} | Gewinn: ${winnings} | Neues Guthaben: ${newBalance} | XP: ${xpGain}`);
-  },
-};
-
+if(symbolsArray[0]===symbolsArray[1]){
+let multiplier = twoMultiplier[symbolsArray[0]]||0;
+return bet*multiplier*houseEdgeFactor;
+}
+if(symbolsArray[1]===symbolsArray[2]){
+let multiplier = twoMultiplier[symbolsArray[1]]||0;
+return bet*multiplier*houseEdgeFactor;
+}
+return 0;
+}
+async function createResultEmbed(sentMessage,currentSymbols,bet,userId) {
+const winnings = evaluateResult(currentSymbols,bet);
+const profit = winnings - bet;
+let embed = new EmbedBuilder();
+embed.setTitle("🎰 Slot Machine Result");
+let display = "---------------------\n| "+currentSymbols[0]+" | "+currentSymbols[1]+" | "+currentSymbols[2]+" |\n---------------------";
+embed.setDescription("Einsatz: "+bet+" Credits\n"+display);
+if(winnings>0){
+embed.addFields({name:"Ergebnis",value:"Gewinn: "+winnings+" Credits",inline:true});
+}else{
+embed.addFields({name:"Ergebnis",value:"❌ YOU LOST",inline:true});
+}
+embed.addFields({name:"Profit",value:profit+" Credits",inline:true});
+embed.setColor(winnings>0?"Green":"Red");
+embed.setTimestamp();
+return {embed,winnings,profit};
+}
+async function updateXP(userId,bet) {
+let xpGain = Math.floor(bet/10)+Math.floor(Math.random()*5);
+await addXP(userId,xpGain);
+return xpGain;
+}
+const fs = require("fs");
+function formatCredits(amount) {
+return amount.toLocaleString()+" Credits";
+}
+function formatXP(xp) {
+return xp+" XP";
+}
+function logSlotResult(userId,bet,winnings,profit,slotResult) {
+const now = new Date().toISOString();
+const logEntry = now+" | "+userId+" | Bet: "+bet+" | Slots: "+slotResult.join(" | ")+" | Winnings: "+winnings+" | Profit: "+profit+"\n";
+fs.appendFileSync("slots.log",logEntry);
+}
+async function updateUserRecord(userId,bet,winnings,xpGain,slotResult) {
+try {
+const balance = await getBalance(userId);
+console.log("User",userId,"updated. New balance:",balance);
+logSlotResult(userId,bet,winnings,winnings-bet,slotResult);
+}catch(err){
+console.error("Error updating user record for",userId,err);
+}
+}
+function delay(ms) {
+return new Promise(resolve=>setTimeout(resolve,ms));
+}
+async function animateSlots(sentMessage,currentSymbols,bet,userId) {
+for(let reel=0;reel<3;reel++){
+await spinReel(reel,currentSymbols,sentMessage,bet,userId);
+}
+return currentSymbols;
+}
+async function processSlotGame(userId,bet,sentMessage) {
+let symbolsArr = ["❓","❓","❓"];
+symbolsArr = await animateSlots(sentMessage,symbolsArr,bet,userId);
+const result = evaluateResult(symbolsArr,bet);
+const profitCalc = result - bet;
+return {symbolsArr,result,profitCalc};
+}
+async function displayFinalResult(sentMessage,embed,userId,bet,xpGain) {
+const newBalance = await getBalance(userId);
+embed.addFields({name:"Guthaben",value:"Dein Guthaben: "+formatCredits(newBalance),inline:false});
+embed.addFields({name:"XP",value:"Du hast "+formatXP(xpGain)+" verdient.",inline:false});
+await sentMessage.edit({embeds:[embed]});
+}
+async function runSlotAnimation(message,args,client) {
+const userId = message.author.id;
+const bet = parseInt(args[0]) || 100;
+if(bet<=0||isNaN(bet)) { return message.reply("Ungültiger Einsatz!"); }
+const balance = await getBalance(userId);
+if(balance<bet) { return message.reply("Nicht genug Credits!"); }
+await removeBalance(userId,bet);
+let symbolsArr = ["❓","❓","❓"];
+let embed = createSlotEmbed(symbolsArr,bet,userId);
+const sentMessage = await message.channel.send({embeds:[embed]});
+const resultData = await processSlotGame(userId,bet,sentMessage);
+const finalSymbols = resultData.symbolsArr;
+const winnings = resultData.result;
+const profitCalc = resultData.profitCalc;
+await addBalance(userId,winnings);
+const xpGain = await updateXP(userId,bet);
+const resultEmbedData = await createResultEmbed(sentMessage,finalSymbols,bet,userId);
+resultEmbedData.embed.addFields({name:"Guthaben",value:"Dein Guthaben: "+formatCredits(await getBalance(userId)),inline:false});
+resultEmbedData.embed.addFields({name:"XP",value:"Du hast "+formatXP(xpGain)+" verdient.",inline:false});
+await sentMessage.edit({embeds:[resultEmbedData.embed]});
+await updateUserRecord(userId,bet,winnings,xpGain,finalSymbols);
+console.log("Slot result for",userId,":",finalSymbols.join(" | "), "Bet:",bet,"Winnings:",winnings,"Profit:",profitCalc);
+}
+module.exports.runSlotAnimation = runSlotAnimation;
+module.exports.execute = async (message,args,client) => { await runSlotAnimation(message,args,client); };
