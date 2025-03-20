@@ -2,14 +2,14 @@ const { EmbedBuilder } = require("discord.js");
 
 module.exports = {
   name: "unban",
-  description: "Hebt den Bann eines Mitglieds auf und zeigt eine schön designte Bestätigung an.",
+  description: "Hebt den Bann eines Mitglieds auf (User-ID erforderlich).",
   async execute(message, args, client) {
-    // Prüfe, ob der ausführende User die nötigen Berechtigungen hat
+    // Prüfe Berechtigung
     if (!message.member.permissions.has("BanMembers")) {
       const embed = new EmbedBuilder()
         .setTitle("Fehler")
-        .setDescription("Du hast nicht die Berechtigungen, um Banns aufzuheben.")
-        .setColor(0xE74C3C)
+        .setDescription("Du hast keine Berechtigung, Banns aufzuheben.")
+        .setColor("Red")
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
@@ -19,26 +19,38 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle("Fehler")
         .setDescription("Bitte gib die User-ID des Mitglieds an, dessen Bann aufgehoben werden soll.")
-        .setColor(0xE74C3C)
+        .setColor("Red")
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
 
     try {
+      // Versuche, den Bann für die angegebene User-ID zu holen.
+      const banInfo = await message.guild.bans.fetch(userId);
+      if (!banInfo) {
+        const embed = new EmbedBuilder()
+          .setTitle("Fehler")
+          .setDescription(`Mitglied mit der ID \`${userId}\` ist nicht gebannt.`)
+          .setColor("Red")
+          .setTimestamp();
+        return message.channel.send({ embeds: [embed] });
+      }
+
+      // Falls gebannt, hebe den Bann auf.
       await message.guild.members.unban(userId);
       const successEmbed = new EmbedBuilder()
         .setTitle("Unban erfolgreich")
         .setDescription(`Mitglied mit der ID \`${userId}\` wurde entbannt.`)
-        .setColor(0x2ECC71)
-        .setFooter({ text: `Unban durchgeführt von ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .setColor("Green")
+        .setFooter({ text: `Unban ausgeführt von ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
         .setTimestamp();
       return message.channel.send({ embeds: [successEmbed] });
     } catch (error) {
       console.error("Unban-Fehler:", error);
       const errorEmbed = new EmbedBuilder()
         .setTitle("Fehler beim Unban")
-        .setDescription("Der Unban-Vorgang ist fehlgeschlagen. Überprüfe die ID und ob ich die nötigen Berechtigungen habe.")
-        .setColor(0xE74C3C)
+        .setDescription(`Der Unban-Vorgang ist fehlgeschlagen. Überprüfe, ob die ID korrekt ist und ob der Nutzer tatsächlich gebannt ist.\nFehler: \`${error.message}\``)
+        .setColor("Red")
         .setTimestamp();
       return message.channel.send({ embeds: [errorEmbed] });
     }
