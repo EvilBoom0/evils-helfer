@@ -7,6 +7,6 @@ const userSchema = new mongoose.Schema({
   bankLimit: { type: Number, default: 1000 },
   xp: { type: Number, default: 0 },
   level: { type: Number, default: 1 }
-});
+}, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
