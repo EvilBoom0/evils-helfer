@@ -7,31 +7,30 @@ const weightedSymbols = [
 ];
 
 const multipliers = {
-  "🍒🍒🍒": 2,  
-  "🍋🍋🍋": 3,  
-  "🍉🍉🍉": 5,  
-  "💎💎💎": 10,  
-  "💰💰💰": 100,  
-  "🥇🥇🥇": 1000,  
-  "💯💯💯": 10000  
+  "🍒🍒🍒": 2,
+  "🍋🍋🍋": 3,
+  "🍉🍉🍉": 5,
+  "💎💎💎": 10,
+  "💰💰💰": 100,
+  "🥇🥇🥇": 1000,
+  "💯💯💯": 10000
 };
 
 const smallWins = {
-  "🍒🍒": 1.2,   
-  "🍋🍋": 1.5,   
-  "🍉🍉": 2,     
-  "💎💎": 3,     
+  "🍒🍒": 1.2,
+  "🍋🍋": 1.5,
+  "🍉🍉": 2,
+  "💎💎": 3,
 };
 
+// Funktion für animierte Slot-Drehung von links nach rechts
 async function spinSlots(sentMessage, userId, bet) {
   let slots = ["❓", "❓", "❓"];
   
-  for (let step = 0; step < 5; step++) { 
-    slots = [
-      weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)],
-      weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)],
-      weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)]
-    ];
+  for (let step = 0; step < 3; step++) { 
+    for (let i = 0; i <= step; i++) {
+      slots[i] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
+    }
 
     const embed = new EmbedBuilder()
       .setTitle(`🎰 Slot Machine | ${userId}`)
@@ -39,12 +38,13 @@ async function spinSlots(sentMessage, userId, bet) {
       .setColor("Gold");
 
     await sentMessage.edit({ embeds: [embed] });
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 700));
   }
 
   return slots;
 }
 
+// Funktion zur Berechnung des Gewinns
 function calculateWinnings(slotResult, bet) {
   const resultString = slotResult.join("");
 
@@ -78,6 +78,7 @@ module.exports = {
 
     const sentMessage = await message.channel.send({ embeds: [embed] });
 
+    // Animierte Slot-Drehung (Links nach Rechts)
     const slotResult = await spinSlots(sentMessage, userId, bet);
     const winnings = calculateWinnings(slotResult, bet);
     const profit = winnings - bet;
