@@ -2,14 +2,25 @@ const { EmbedBuilder } = require("discord.js");
 const { getBalance, removeBalance, addBalance } = require("../utils/cashSystem");
 const { getXP, addXP } = require("../utils/xpSystem");
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function parseBet(input, currentBalance) {
+  input = input.toLowerCase().trim();
+  if (input === "all") return currentBalance;
+  let multiplier = 1;
+  if (input.endsWith("k")) {
+    multiplier = 1000;
+    input = input.slice(0, -1);
+  } else if (input.endsWith("m")) {
+    multiplier = 1000000;
+    input = input.slice(0, -1);
+  }
+  let amount = parseInt(input);
+  return isNaN(amount) ? 0 : amount * multiplier;
 }
 
 function formatNumber(num) {
-  if (num >= 1000000) return Math.round(num / 1000000) + "m";
-  if (num >= 1000) return Math.round(num / 1000) + "k";
-  return Math.round(num).toString();
+  if (num >= 1000000) return Math.floor(num / 1000000) + "m";
+  if (num >= 1000) return Math.floor(num / 1000) + "k";
+  return Math.floor(num).toString();
 }
 
 const weightedSymbols = [
@@ -50,145 +61,185 @@ const twoMultiplier = {
 
 const houseEdgeFactor = 0.49;
 
-async function animateReel(index, currentSymbols, messageObj, bet, userId) {
-  const steps = 3;
-  for (let i = 0; i < steps; i++) {
-    currentSymbols[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
-    let embed = buildEmbed(currentSymbols, bet, userId, false);
-    await messageObj.edit({ embeds: [embed] });
-    await sleep(200);
-  }
-  currentSymbols[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
-  let embed = buildEmbed(currentSymbols, bet, userId, false);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function updateEmbed(messageObj, reels, bet, userId) {
+  let display = `---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`;
+  let embed = new EmbedBuilder()
+    .setTitle(`Slot | User: ${message.author.username} - id: ${userId}`)
+    .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n${display}`)
+    .setFooter({ text: "Bitte warten..." })
+    .setTimestamp();
   await messageObj.edit({ embeds: [embed] });
 }
 
-function buildEmbed(symbols, bet, userId, final) {
-  let header = `Slot | User: <@${userId}> - id: ${userId}`;
-  let divider = "---------------------";
-  let slotLine = `| ${symbols[0]} | ${symbols[1]} | ${symbols[2]} |`;
-  let resultText = final ? generateResultText(symbols, bet) : "";
-  let description = `${header}\n${divider}\n${slotLine}\n${divider}\n${resultText}`;
-  return new EmbedBuilder().setTitle("Slot Machine").setDescription(description).setColor(final ? (resultText.includes("YOU LOST") ? "Red" : "Green") : "Gold").setTimestamp();
+async function spinReel(index, reels, messageObj, bet, userId) {
+  const steps = 4;
+  for (let i = 0; i < steps; i++) {
+    reels[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
+    let embed = new EmbedBuilder()
+      .setTitle(`Slot | User: ${message.author.username} - id: ${userId}`)
+      .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`)
+      .setFooter({ text: "Drehe..." })
+      .setTimestamp();
+    await messageObj.edit({ embeds: [embed] });
+    await sleep(150);
+  }
+  reels[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
+  let embed = new EmbedBuilder()
+    .setTitle(`Slot | User: ${message.author.username} - id: ${userId}`)
+    .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`)
+    .setFooter({ text: "Gestoppt" })
+    .setTimestamp();
+  await messageObj.edit({ embeds: [embed] });
 }
 
-function generateResultText(symbols, bet) {
-  let winAmount = calculateWinnings(symbols, bet);
-  let outcome = (symbols[0] === symbols[1] && symbols[1] === symbols[2])
-    ? "YOU WON BIG!"
-    : (symbols[0] === symbols[1] || symbols[1] === symbols[2])
-      ? "YOU WON!"
-      : "YOU LOST";
-  let profit = winAmount - bet;
-  let text = `${outcome}\nProfit\n${profit < 0 ? profit : "+" + profit} credits\nCredits\nYou have ${formatNumber(winAmount)} credits\nYou earned ${Math.floor(bet / 10) + Math.floor(Math.random() * 5)} xp`;
-  return text;
-}
-
-function calculateWinnings(symbols, bet) {
-  if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
-    let mult = threeMultiplier[symbols[0]] || 0;
-    return Math.round(bet * mult * houseEdgeFactor);
+function evaluateSlots(reels, bet) {
+  if (reels[0] === reels[1] && reels[1] === reels[2]) {
+    return Math.floor(bet * (threeMultiplier[reels[0]] || 0) * houseEdgeFactor);
   }
-  if (symbols[0] === symbols[1]) {
-    let mult = twoMultiplier[symbols[0]] || 0;
-    return Math.round(bet * mult * houseEdgeFactor);
+  if (reels[0] === reels[1]) {
+    return Math.floor(bet * (twoMultiplier[reels[0]] || 0) * houseEdgeFactor);
   }
-  if (symbols[1] === symbols[2]) {
-    let mult = twoMultiplier[symbols[1]] || 0;
-    return Math.round(bet * mult * houseEdgeFactor);
+  if (reels[1] === reels[2]) {
+    return Math.floor(bet * (twoMultiplier[reels[1]] || 0) * houseEdgeFactor);
   }
   return 0;
 }
 
-function calculateXPThreshold(level) {
-  return level * 100;
+async function createFinalEmbed(messageObj, reels, bet, userId, winnings, profit, newBalance, xpGain, currentLevel, leveledUp) {
+  const header = `Slot | User: ${message.author.username} - id: ${userId}`;
+  const divider = "---------------------";
+  const reelDisplay = `| ${reels[0]} | ${reels[1]} | ${reels[2]} |`;
+  let resultText = winnings > 0 ? "--- YOU WIN ---" : "--- YOU LOST ---";
+  let desc = `${divider}\n${reelDisplay}\n${divider}\n${resultText}\nProfit: ${profit} credits\nCredits: You have ${formatNumber(newBalance)} credits\nYou earned ${xpGain} xp`;
+  if (leveledUp) desc += `\nLevel Up! New Level: ${currentLevel}`;
+  let embed = new EmbedBuilder()
+    .setTitle(header)
+    .setDescription(desc)
+    .setColor(winnings > 0 ? "Green" : "Red")
+    .setTimestamp();
+  await messageObj.edit({ embeds: [embed] });
 }
 
-function updateXP(currentXP, currentLevel, xpGain) {
-  let leveledUp = false;
+async function updateXPAndLevel(userId, xpGain) {
+  let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
+  let currentXP = xpData.xp;
+  let currentLevel = xpData.level;
   currentXP += xpGain;
-  let threshold = calculateXPThreshold(currentLevel);
+  let leveledUp = false;
+  let threshold = currentLevel * 100;
   while (currentXP >= threshold) {
     currentXP -= threshold;
     currentLevel++;
     leveledUp = true;
-    threshold = calculateXPThreshold(currentLevel);
+    threshold = currentLevel * 100;
   }
-  return { currentXP, currentLevel, leveledUp };
+  await addXP(userId, xpGain);
+  return { xp: currentXP, level: currentLevel, leveledUp };
 }
 
-async function recordGameLog(userId, bet, winAmount, profit, xpGain) {
+async function logGameResult(userId, bet, winnings, profit) {
   const fs = require("fs");
   const path = require("path");
-  let logEntry = `[${new Date().toISOString()}] ${userId} - Bet: ${bet}, Win: ${winAmount}, Profit: ${profit}, XP: ${xpGain}\n`;
-  fs.appendFileSync(path.join(__dirname, "../data/gameLog.txt"), logEntry, "utf8");
+  const logPath = path.join(__dirname, "../data/slotLog.txt");
+  const entry = `[${new Date().toISOString()}] User: ${userId} | Bet: ${bet} | Win: ${winnings} | Profit: ${profit}\n`;
+  fs.appendFileSync(logPath, entry, "utf8");
 }
 
-async function updateUserStats(userId, bet, winAmount, profit, xpGain, currentXP, currentLevel, leveledUp) {
+async function updateGameStats(userId, bet, winnings, profit, xpGain, currentXP, currentLevel, leveledUp) {
   const fs = require("fs");
   const path = require("path");
-  let statsEntry = {
-    timestamp: new Date().toISOString(),
-    userId,
-    bet,
-    winAmount,
-    profit,
-    xpGain,
-    currentXP,
-    currentLevel,
-    leveledUp
-  };
-  fs.appendFileSync(path.join(__dirname, "../data/gameStats.json"), JSON.stringify(statsEntry) + "\n", "utf8");
+  const statsPath = path.join(__dirname, "../data/statistics.json");
+  let stats = {};
+  if (fs.existsSync(statsPath)) {
+    try { 
+      stats = JSON.parse(fs.readFileSync(statsPath, "utf8")); 
+    } catch(e){ 
+      stats = {}; 
+    }
+  }
+  if (!stats[userId]) {
+    stats[userId] = { games: 0, totalBet: 0, totalWin: 0, totalProfit: 0, xpEarned: 0 };
+  }
+  stats[userId].games += 1;
+  stats[userId].totalBet += bet;
+  stats[userId].totalWin += winnings;
+  stats[userId].totalProfit += profit;
+  stats[userId].xpEarned += xpGain;
+  fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2), "utf8");
 }
 
-async function logAnalytics() {
+function logAnalytics() {
   const fs = require("fs");
   const path = require("path");
-  const statsPath = path.join(__dirname, "../data/gameStats.json");
+  const statsPath = path.join(__dirname, "../data/statistics.json");
   if (!fs.existsSync(statsPath)) return;
-  let stats = fs.readFileSync(statsPath, "utf8").split("\n").filter(Boolean);
-  let totalGames = stats.length;
-  let totalProfit = stats.reduce((acc, line) => {
-    try { let data = JSON.parse(line); return acc + data.profit; } catch(e) { return acc; }
-  }, 0);
-  console.log(`Analytics: Total Games: ${totalGames}, Average Profit: ${ (totalGames > 0 ? (totalProfit/totalGames).toFixed(2) : 0) } credits`);
+  let stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+  let totalProfit = 0, totalGames = 0;
+  for (const uid in stats) {
+    totalProfit += stats[uid].totalProfit;
+    totalGames += stats[uid].games;
+  }
+  console.log(`Durchschnittlicher Profit pro Spiel: ${totalGames === 0 ? 0 : (totalProfit / totalGames).toFixed(2)} credits`);
+}
+
+const bonusChance = 0.02;
+function getBonusWinnings(bet) {
+  if (Math.random() < bonusChance) {
+    return Math.floor(bet * (Math.random() * (10000 - 1000) + 1000));
+  }
+  return 0;
 }
 
 module.exports = {
   name: "slot",
-  description: "Spiele Slots. Nutze !slot oder !s <Betrag/all>",
+  description: "Spiele die Slot Machine. Setze deinen Einsatz in Credits. Nutze !s als Kurzform.",
   aliases: ["s"],
   async execute(message, args, client) {
     const userId = message.author.id;
-    let bet = (args[0] && args[0].toLowerCase() === "all") ? await getBalance(userId) : parseInt(args[0]) || 100;
-    if (bet <= 0 || isNaN(bet)) return message.reply("Ungültiger Einsatz!");
-    const currentBal = await getBalance(userId);
-    if (currentBal < bet) return message.reply("Nicht genug Credits!");
+    let betInput = args[0] || "100";
+    const { getBalance, removeBalance, addBalance } = require("../utils/cashSystem");
+    let currentBalance = await getBalance(userId);
+    let bet = parseBet(betInput, currentBalance);
+    if (bet <= 0) return message.reply("Ungültiger Einsatz!");
+    if (bet > currentBalance) return message.reply("Nicht genug Credits!");
     await removeBalance(userId, bet);
-    let currentSymbols = ["❓","❓","❓"];
-    let sentMessage = await message.channel.send({ embeds: [buildEmbed(currentSymbols, bet, userId, false)] });
-    await animateReel(0, currentSymbols, sentMessage, bet, userId);
-    await animateReel(1, currentSymbols, sentMessage, bet, userId);
-    await animateReel(2, currentSymbols, sentMessage, bet, userId);
-    let winAmount = calculateWinnings(currentSymbols, bet);
-    let profit = winAmount - bet;
-    let bonus = 0;
-    if (Math.random() < 0.00001) bonus = bet * 10000;
-    winAmount += bonus;
-    profit = winAmount - bet;
-    await addBalance(userId, winAmount);
+    let reels = ["❓", "❓", "❓"];
+    let embed = createEmbed(reels, bet, userId);
+    let sentMessage = await message.channel.send({ embeds: [embed] });
+    for (let i = 0; i < 3; i++) {
+      await spinReel(i, reels, sentMessage, bet, userId);
+    }
+    let bonusWinnings = getBonusWinnings(bet);
+    let winnings = evaluateSlots(reels, bet) + bonusWinnings;
+    let profit = winnings - bet;
+    await addBalance(userId, winnings);
     let xpGain = Math.floor(bet / 10) + Math.floor(Math.random() * 5);
     let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
-    let currentXP = xpData.xp, currentLevel = xpData.level;
-    let xpResult = updateXP(currentXP, currentLevel, xpGain);
-    currentXP = xpResult.currentXP;
-    currentLevel = xpResult.currentLevel;
-    let leveledUp = xpResult.leveledUp;
-    await addXP(userId, xpGain);
-    await createFinalEmbed(sentMessage, currentSymbols, bet, userId, winAmount, profit, await getBalance(userId), xpGain, currentLevel, leveledUp);
-    await recordGameLog(userId, bet, winAmount, profit, xpGain);
-    await updateUserStats(userId, bet, winAmount, profit, xpGain, currentXP, currentLevel, leveledUp);
-    await logAnalytics();
-    console.log(`Slot result for ${userId}: ${currentSymbols.join(" | ")} | Bet: ${bet} | Win: ${winAmount} | Profit: ${profit}`);
+    let { xp: currentXP, level: currentLevel, leveledUp } = await updateXPAndLevel(userId, xpGain);
+    let newBalance = await getBalance(userId);
+    await createFinalEmbed(sentMessage, reels, bet, userId, winnings, profit, newBalance, xpGain, currentLevel, leveledUp);
+    await logGameResult(userId, bet, winnings, profit);
+    await updateGameStats(userId, bet, winnings, profit, xpGain, currentXP, currentLevel, leveledUp);
+    logAnalytics();
+    console.log(`Slot result for ${userId}: ${reels.join(" | ")} | Bet: ${bet} | Win: ${winnings} | Profit: ${profit}`);
   }
 };
+
+async function updateXPAndLevel(userId, xpGain) {
+  let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
+  let currentXP = xpData.xp;
+  let currentLevel = xpData.level;
+  currentXP += xpGain;
+  let leveledUp = false;
+  let threshold = currentLevel * 100;
+  while (currentXP >= threshold) {
+    currentXP -= threshold;
+    currentLevel++;
+    leveledUp = true;
+    threshold = currentLevel * 100;
+  }
+  await addXP(userId, xpGain);
+  return { xp: currentXP, level: currentLevel, leveledUp };
+}
