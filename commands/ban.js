@@ -1,53 +1,74 @@
 const { EmbedBuilder } = require("discord.js");
 
 module.exports = {
-  name: "bann",
-  description: "Bannt einen Benutzer vom Server mit einem angegebenen Grund und sendet ihm eine DM.",
+  name: "ban",
+  description: "Bannt ein Mitglied und sendet eine hübsch gestaltete Nachricht sowie eine DM.",
   async execute(message, args, client) {
-    // Prüfe, ob der Aufrufer die Berechtigung "Mitglieder bannen" hat
+    // Prüfe, ob der ausführende User die nötigen Berechtigungen hat
     if (!message.member.permissions.has("BanMembers")) {
-      return message.reply("Du hast keine Berechtigung, Mitglieder zu bannen.");
+      const embed = new EmbedBuilder()
+        .setTitle("Fehler")
+        .setDescription("Du hast nicht die erforderlichen Berechtigungen, um Mitglieder zu bannen.")
+        .setColor(0xE74C3C)
+        .setTimestamp();
+      return message.reply({ embeds: [embed] });
     }
-    
-    // Versuche den zu bannenden Benutzer aus der Erwähnung oder der ID zu ermitteln
-    const userToBan = message.mentions.members.first() || message.guild.members.cache.get(args[0]);
-    if (!userToBan) {
-      return message.reply("Bitte erwähne einen gültigen Benutzer, den du bannen möchtest.");
+
+    // Prüfe, ob ein Mitglied erwähnt wurde
+    const member = message.mentions.members.first();
+    if (!member) {
+      const embed = new EmbedBuilder()
+        .setTitle("Fehler")
+        .setDescription("Bitte erwähne ein Mitglied, das gebannt werden soll.")
+        .setColor(0xE74C3C)
+        .setTimestamp();
+      return message.reply({ embeds: [embed] });
     }
-    
-    // Extrahiere den Grund aus den Argumenten
+
+    // Grund aus den Argumenten (ohne die Erwähnung)
     const reason = args.slice(1).join(" ") || "Kein Grund angegeben";
-    
-    // Erstelle einen Embed für die DM an den zu bannenden Benutzer
+
+    // Erstelle das DM-Embed für den zu bannenden User
     const dmEmbed = new EmbedBuilder()
-      .setColor(0xff0000)
-      .setTitle("Ban Notification")
-      .setDescription(`Du wurdest vom Server **${message.guild.name}** gebannt.\n**Grund:** ${reason}`)
-      .setImage("https://i.imgur.com/KNnXoTU.png") // Ersetze diese URL durch ein passendes Bild
+      .setTitle("Du wurdest gebannt!")
+      .setDescription(`Du wurdest in **${message.guild.name}** gebannt.`)
+      .addFields(
+        { name: "Grund", value: reason }
+      )
+      .setColor(0x9B59B6)
+      .setImage("https://i.imgur.com/KNnXoTU.png")
+      .setFooter({ text: `Gebannt von ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
       .setTimestamp();
-    
-    // Erstelle einen Embed für die Bestätigung im Kanal
-    const channelEmbed = new EmbedBuilder()
-      .setColor(0xff0000)
-      .setTitle("Mitglied Gebannt")
-      .setDescription(`**${userToBan.user.tag}** wurde vom Server gebannt.\n**Grund:** ${reason}`)
-      .setThumbnail(userToBan.user.displayAvatarURL({ dynamic: true }))
-      .setTimestamp();
-    
-    // Sende eine DM an den zu bannenden Benutzer
+
     try {
-      await userToBan.send({ embeds: [dmEmbed] });
+      await member.send({ embeds: [dmEmbed] });
     } catch (err) {
-      console.log("Konnte DM nicht senden: ", err);
+      console.log(`Konnte keine DM an ${member.user.tag} senden.`);
     }
-    
-    // Versuche, den Benutzer zu bannen
+
+    // Versuche, das Mitglied zu bannen
     try {
-      await userToBan.ban({ reason: reason });
-      message.channel.send({ embeds: [channelEmbed] });
-    } catch (err) {
-      console.error("Fehler beim Bann: ", err);
-      message.reply("Es gab einen Fehler beim Bann des Benutzers.");
+      await member.ban({ reason });
+      const successEmbed = new EmbedBuilder()
+        .setTitle("Mitglied gebannt")
+        .setDescription(`**${member.user.tag}** wurde gebannt.`)
+        .addFields(
+          { name: "Grund", value: reason }
+        )
+        .setColor(0x2ECC71)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setImage("https://i.imgur.com/KNnXoTU.png")
+        .setFooter({ text: `Gebannt von ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .setTimestamp();
+      return message.channel.send({ embeds: [successEmbed] });
+    } catch (error) {
+      console.error("Ban-Fehler:", error);
+      const errorEmbed = new EmbedBuilder()
+        .setTitle("Fehler beim Bannen")
+        .setDescription("Der Bannvorgang ist fehlgeschlagen. Stelle sicher, dass ich die nötigen Berechtigungen habe.")
+        .setColor(0xE74C3C)
+        .setTimestamp();
+      return message.channel.send({ embeds: [errorEmbed] });
     }
   },
 };
