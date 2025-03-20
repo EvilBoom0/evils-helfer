@@ -2,30 +2,38 @@ const { EmbedBuilder } = require("discord.js");
 
 module.exports = {
   name: "unban",
-  description: "Hebt den Bann eines Mitglieds auf (User-ID erforderlich).",
+  description: "Hebt den Bann eines Mitglieds auf (Nutzer-ID oder Erwähnung erforderlich).",
   async execute(message, args, client) {
     // Prüfe Berechtigung
     if (!message.member.permissions.has("BanMembers")) {
       const embed = new EmbedBuilder()
         .setTitle("Fehler")
-        .setDescription("Du hast keine Berechtigung, Banns aufzuheben.")
+        .setDescription("Du hast nicht die Berechtigungen, um Banns aufzuheben.")
         .setColor("Red")
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
 
-    const userId = args[0];
+    let userId = args[0];
     if (!userId) {
       const embed = new EmbedBuilder()
         .setTitle("Fehler")
-        .setDescription("Bitte gib die User-ID des Mitglieds an, dessen Bann aufgehoben werden soll.")
+        .setDescription("Bitte gib die User-ID oder Erwähnung des Mitglieds an, dessen Bann aufgehoben werden soll.")
         .setColor("Red")
         .setTimestamp();
       return message.reply({ embeds: [embed] });
     }
 
+    // Wenn der Parameter im Mentions-Format ist, extrahiere die ID
+    if (userId.startsWith("<@") && userId.endsWith(">")) {
+      userId = userId.slice(2, -1);
+      if (userId.startsWith("!")) {
+        userId = userId.slice(1);
+      }
+    }
+
     try {
-      // Versuche, den Bann für die angegebene User-ID zu holen.
+      // Prüfe, ob der User überhaupt gebannt ist
       const banInfo = await message.guild.bans.fetch(userId);
       if (!banInfo) {
         const embed = new EmbedBuilder()
@@ -36,13 +44,13 @@ module.exports = {
         return message.channel.send({ embeds: [embed] });
       }
 
-      // Falls gebannt, hebe den Bann auf.
+      // Unban durchführen
       await message.guild.members.unban(userId);
       const successEmbed = new EmbedBuilder()
         .setTitle("Unban erfolgreich")
         .setDescription(`Mitglied mit der ID \`${userId}\` wurde entbannt.`)
         .setColor("Green")
-        .setFooter({ text: `Unban ausgeführt von ${message.author.tag}`, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
+        .setFooter({ text: "Unban durchgeführt von " + message.author.tag, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
         .setTimestamp();
       return message.channel.send({ embeds: [successEmbed] });
     } catch (error) {
