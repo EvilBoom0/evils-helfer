@@ -60,21 +60,21 @@ const twoMultiplier = {
 };
 
 const houseEdgeFactor = 0.49;
+const bonusChance = 0.02;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function updateEmbed(messageObj, reels, bet, userId) {
-  let display = `---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`;
-  let embed = new EmbedBuilder()
+function createEmbed(symbols, bet, userId) {
+  const display = `---------------------\n| ${symbols[0]} | ${symbols[1]} | ${symbols[2]} |\n---------------------`;
+  return new EmbedBuilder()
     .setTitle(`Slot | User: ${message.author.username} - id: ${userId}`)
     .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n${display}`)
-    .setFooter({ text: "Bitte warten..." })
+    .setColor("Gold")
     .setTimestamp();
-  await messageObj.edit({ embeds: [embed] });
 }
 
-async function spinReel(index, reels, messageObj, bet, userId) {
-  const steps = 4;
+async function spinReel(index, reels, sentMessage, bet, userId) {
+  const steps = 3;
   for (let i = 0; i < steps; i++) {
     reels[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
     let embed = new EmbedBuilder()
@@ -82,8 +82,8 @@ async function spinReel(index, reels, messageObj, bet, userId) {
       .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`)
       .setFooter({ text: "Drehe..." })
       .setTimestamp();
-    await messageObj.edit({ embeds: [embed] });
-    await sleep(150);
+    await sentMessage.edit({ embeds: [embed] });
+    await sleep(100);
   }
   reels[index] = weightedSymbols[Math.floor(Math.random() * weightedSymbols.length)];
   let embed = new EmbedBuilder()
@@ -91,7 +91,7 @@ async function spinReel(index, reels, messageObj, bet, userId) {
     .setDescription(`Einsatz: ${formatNumber(bet)} Credits\n---------------------\n| ${reels[0]} | ${reels[1]} | ${reels[2]} |\n---------------------`)
     .setFooter({ text: "Gestoppt" })
     .setTimestamp();
-  await messageObj.edit({ embeds: [embed] });
+  await sentMessage.edit({ embeds: [embed] });
 }
 
 function evaluateSlots(reels, bet) {
@@ -107,7 +107,14 @@ function evaluateSlots(reels, bet) {
   return 0;
 }
 
-async function createFinalEmbed(messageObj, reels, bet, userId, winnings, profit, newBalance, xpGain, currentLevel, leveledUp) {
+function getBonusWinnings(bet) {
+  if (Math.random() < bonusChance) {
+    return Math.floor(bet * (Math.random() * (10000 - 1000) + 1000));
+  }
+  return 0;
+}
+
+async function createFinalEmbed(sentMessage, reels, bet, userId, winnings, profit, newBalance, xpGain, currentLevel, leveledUp) {
   const header = `Slot | User: ${message.author.username} - id: ${userId}`;
   const divider = "---------------------";
   const reelDisplay = `| ${reels[0]} | ${reels[1]} | ${reels[2]} |`;
@@ -119,7 +126,7 @@ async function createFinalEmbed(messageObj, reels, bet, userId, winnings, profit
     .setDescription(desc)
     .setColor(winnings > 0 ? "Green" : "Red")
     .setTimestamp();
-  await messageObj.edit({ embeds: [embed] });
+  await sentMessage.edit({ embeds: [embed] });
 }
 
 async function updateXPAndLevel(userId, xpGain) {
@@ -153,15 +160,9 @@ async function updateGameStats(userId, bet, winnings, profit, xpGain, currentXP,
   const statsPath = path.join(__dirname, "../data/statistics.json");
   let stats = {};
   if (fs.existsSync(statsPath)) {
-    try { 
-      stats = JSON.parse(fs.readFileSync(statsPath, "utf8")); 
-    } catch(e){ 
-      stats = {}; 
-    }
+    try { stats = JSON.parse(fs.readFileSync(statsPath, "utf8")); } catch(e){ stats = {}; }
   }
-  if (!stats[userId]) {
-    stats[userId] = { games: 0, totalBet: 0, totalWin: 0, totalProfit: 0, xpEarned: 0 };
-  }
+  if (!stats[userId]) stats[userId] = { games: 0, totalBet: 0, totalWin: 0, totalProfit: 0, xpEarned: 0 };
   stats[userId].games += 1;
   stats[userId].totalBet += bet;
   stats[userId].totalWin += winnings;
@@ -184,17 +185,26 @@ function logAnalytics() {
   console.log(`Durchschnittlicher Profit pro Spiel: ${totalGames === 0 ? 0 : (totalProfit / totalGames).toFixed(2)} credits`);
 }
 
-const bonusChance = 0.02;
-function getBonusWinnings(bet) {
-  if (Math.random() < bonusChance) {
-    return Math.floor(bet * (Math.random() * (10000 - 1000) + 1000));
+async function updateXPAndStats(userId, bet, winnings, xpGain) {
+  let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
+  let currentXP = xpData.xp;
+  let currentLevel = xpData.level;
+  currentXP += xpGain;
+  let leveledUp = false;
+  let threshold = currentLevel * 100;
+  while (currentXP >= threshold) {
+    currentXP -= threshold;
+    currentLevel++;
+    leveledUp = true;
+    threshold = currentLevel * 100;
   }
-  return 0;
+  await addXP(userId, xpGain);
+  return { currentXP, currentLevel, leveledUp };
 }
 
 module.exports = {
   name: "slot",
-  description: "Spiele die Slot Machine. Setze deinen Einsatz in Credits. Nutze !s als Kurzform.",
+  description: "Spiele die Slot Machine. Setze deinen Einsatz in Credits mit !slot oder !s.",
   aliases: ["s"],
   async execute(message, args, client) {
     const userId = message.author.id;
@@ -216,8 +226,7 @@ module.exports = {
     let profit = winnings - bet;
     await addBalance(userId, winnings);
     let xpGain = Math.floor(bet / 10) + Math.floor(Math.random() * 5);
-    let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
-    let { xp: currentXP, level: currentLevel, leveledUp } = await updateXPAndLevel(userId, xpGain);
+    let { currentXP, currentLevel, leveledUp } = await updateXPAndStats(userId, bet, winnings, xpGain);
     let newBalance = await getBalance(userId);
     await createFinalEmbed(sentMessage, reels, bet, userId, winnings, profit, newBalance, xpGain, currentLevel, leveledUp);
     await logGameResult(userId, bet, winnings, profit);
@@ -226,20 +235,3 @@ module.exports = {
     console.log(`Slot result for ${userId}: ${reels.join(" | ")} | Bet: ${bet} | Win: ${winnings} | Profit: ${profit}`);
   }
 };
-
-async function updateXPAndLevel(userId, xpGain) {
-  let xpData = await getXP(userId).catch(() => ({ xp: 0, level: 1 }));
-  let currentXP = xpData.xp;
-  let currentLevel = xpData.level;
-  currentXP += xpGain;
-  let leveledUp = false;
-  let threshold = currentLevel * 100;
-  while (currentXP >= threshold) {
-    currentXP -= threshold;
-    currentLevel++;
-    leveledUp = true;
-    threshold = currentLevel * 100;
-  }
-  await addXP(userId, xpGain);
-  return { xp: currentXP, level: currentLevel, leveledUp };
-}
