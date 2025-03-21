@@ -43,7 +43,6 @@ async function sendLiveEmbed(client, config, streamData) {
     .addFields(
       { name: "📌 Titel", value: streamData.title || "Kein Titel", inline: false },
       { name: "🎮 Kategorie", value: streamData.game_name || "Unbekannt", inline: true },
-      { name: "👥 Zuschauer", value: streamData.viewer_count.toString(), inline: true }
     )
     .setImage(`https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamData.user_login.toLowerCase()}-640x360.jpg`)
     .setColor(0x9146FF)
