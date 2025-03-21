@@ -11,26 +11,18 @@ module.exports = {
       const configPath = path.join(__dirname, "../data/verificationConfig.json");
 
       if (!fs.existsSync(configPath)) {
-        console.log("❌ config file not found");
         return message.reply("❌ Der Verifizierungsprozess ist nicht eingerichtet.");
       }
 
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
       if (message.channel.id !== config.channelId) {
-        console.log("❌ falscher channel");
         return message.reply("⚠️ Bitte benutze den richtigen Channel zur Verifizierung!");
       }
 
       const { image, answer } = await generateCaptcha();
 
-      if (!image || !answer) {
-        console.log("❌ Captcha-API Fehler: Kein Bild oder keine Antwort erhalten");
-        return message.reply("❌ Captcha konnte nicht geladen werden. Bitte versuche es später erneut.");
-      }
-
-      const imageBuffer = Buffer.from(image, "base64");
-      const attachment = new AttachmentBuilder(imageBuffer, { name: "captcha.png" });
+      const attachment = new AttachmentBuilder(image, { name: "captcha.png" });
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -41,10 +33,11 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setTitle("🔐 Captcha-Verifizierung")
-        .setDescription("Bitte gib den **Text aus dem Bild** ein. Klicke unten auf den Button, um deine Lösung einzugeben.")
+        .setDescription(`Hey <@${message.author.id}>!\nBitte gib den **Text aus dem Bild** ein.\nKlicke unten auf den Button, um deine Antwort einzugeben.`)
         .setColor("Blurple")
         .setImage("attachment://captcha.png")
-        .setFooter({ text: "Verifikation erforderlich", iconURL: "https://i.imgur.com/KNnXoTU.png" });
+        .setFooter({ text: "Verifikation notwendig", iconURL: "https://i.imgur.com/KNnXoTU.png" })
+        .setTimestamp();
 
       await message.reply({ embeds: [embed], components: [row], files: [attachment] });
 
