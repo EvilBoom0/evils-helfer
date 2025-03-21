@@ -1,73 +1,64 @@
-const {
-  EmbedBuilder,
-  AttachmentBuilder,
-  ButtonBuilder,
-  ActionRowBuilder,
-  ButtonStyle,
-} = require("discord.js");
-const { generateCaptcha } = require("../utils/captchaApi");
-const fs = require("fs");
+const { AttachmentBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder } = require("discord.js");
 const path = require("path");
-const { userMessages } = require("../events/guildMemberAdd");
+const fs = require("fs");
+const generateCaptcha = require("../utils/captchaApi");
+const Verification = require("../models/verification");
 
 module.exports = {
   name: "verify",
-  description: "Starte den Verifizierungsprozess mit Captcha.",
-  async execute(message) {
+  description: "Starte den Verifizierungsprozess.",
+  async execute(message, args, client) {
     const userId = message.author.id;
+    const guildId = message.guild.id;
 
-    const configPath = path.join(__dirname, "../data/verificationConfig.json");
-    if (!fs.existsSync(configPath)) {
-      return message.reply("⚠️ Der Verifizierungskanal wurde noch nicht eingerichtet. Nutze `!verificationsetup`.");
-    }
+    const existing = await Verification.findOne({ guildId, userId });
+    if (existing && existing.verified) return message.reply({ content: "✅ Du bist bereits verifiziert!", ephemeral: true });
 
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    if (message.channel.id !== config.channelId) {
-      return message.reply("⚠️ Du kannst den Verifizierungsprozess nur im Verifizierungskanal starten.");
-    }
-
-    const { image, answer } = await generateCaptcha();
-    const attachment = new AttachmentBuilder(image, { name: "captcha.png" });
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`verify:correct:${answer}:${userId}`)
-        .setLabel("Antwort eingeben")
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`captcha:refresh:${userId}`)
-        .setLabel("🔁 Neues Captcha")
-        .setStyle(ButtonStyle.Secondary)
+    const data = await Verification.findOneAndUpdate(
+      { guildId, userId },
+      { $setOnInsert: { verified: false } },
+      { upsert: true, new: true }
     );
 
-    const embed = new EmbedBuilder()
-      .setTitle("🔐 Captcha-Verifizierung")
-      .setDescription(`<@${userId}>, gib den Captcha-Code ein:`)
-      .setColor("Blurple")
-      .setImage("attachment://captcha.png")
-      .setFooter({
-        text: "Verifikation • Powered by Evil's Helfer",
-        iconURL: message.client.user.displayAvatarURL(),
-      });
+    if (data.challenge && !data.verified) {
+      return message.reply({ content: "⚠️ Du hast bereits ein offenes Captcha. Bitte löse es zuerst.", ephemeral: true });
+    }
 
-    const msg = await message.channel.send({
+    const { imageBuffer, text, filename } = await generateCaptcha();
+
+    data.challenge = text;
+    await data.save();
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2f3136)
+      .setTitle("🔐 Verifizierung erforderlich")
+      .setDescription(`Hey <@${userId}>, gib den Text aus dem Captcha unten ein, um Zugriff zum Server zu erhalten.`)
+      .setFooter({ text: "Powered by Evil's Helfer", iconURL: client.user.displayAvatarURL() })
+      .setTimestamp();
+
+    const attachment = new AttachmentBuilder(imageBuffer, { name: filename });
+
+    const newCaptchaButton = new ButtonBuilder()
+      .setCustomId(`captcha_new_${userId}`)
+      .setLabel("Neues Captcha")
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder().addComponents(newCaptchaButton);
+
+    const sent = await message.channel.send({
+      content: `<@${userId}>`,
       embeds: [embed],
-      components: [row],
       files: [attachment],
+      components: [row]
     });
 
-    try {
-      await message.delete().catch(() => {});
-    } catch (e) {}
-
-    if (!userMessages.has(userId)) userMessages.set(userId, []);
-    userMessages.get(userId).push(msg);
-
-    setTimeout(() => {
-      if (userMessages.has(userId)) {
-        for (const m of userMessages.get(userId)) m.delete().catch(() => {});
-        userMessages.delete(userId);
+    setTimeout(async () => {
+      const check = await Verification.findOne({ guildId, userId });
+      if (check && !check.verified) {
+        await sent.delete().catch(() => {});
+        await message.delete().catch(() => {});
+        await Verification.deleteOne({ guildId, userId });
       }
-    }, 15 * 60 * 1000); // 15 Minuten Auto-Cleanup
-  },
+    }, 15 * 60 * 1000); // 15 Minuten
+  }
 };
