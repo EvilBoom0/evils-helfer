@@ -1,4 +1,13 @@
-const { EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
+const {
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  EmbedBuilder,
+  AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const { generateCaptcha } = require("../utils/captchaApi");
 const fs = require("fs");
 const path = require("path");
@@ -6,68 +15,91 @@ const path = require("path");
 module.exports = {
   name: "interactionCreate",
   async execute(interaction) {
-    if (!interaction.isButton()) return;
+    if (interaction.isButton()) {
+      const [type, action, expected, userId] = interaction.customId.split("_");
 
-    const [type, action, expectedAnswer, userId] = interaction.customId.split("_");
+      // NEUES CAPTCHA BUTTON
+      if (type === "captcha" && action === "refresh") {
+        if (interaction.user.id !== userId)
+          return await interaction.reply({
+            content: "⛔ Nicht für dich gedacht!",
+            ephemeral: true,
+          });
 
-    if (type === "verify" && action === "correct") {
-      if (interaction.user.id !== userId) {
-        return interaction.reply({ content: "⛔ Das ist nicht für dich gedacht.", ephemeral: true });
+        const { image, answer } = await generateCaptcha();
+        const attachment = new AttachmentBuilder(image, { name: "captcha.png" });
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`verify_correct_${answer}_${interaction.user.id}`)
+            .setLabel("Antwort eingeben")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`captcha_refresh_${interaction.user.id}`)
+            .setLabel("🔁 Neues Captcha")
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        const embed = new EmbedBuilder()
+          .setTitle("🔄 Neues Captcha")
+          .setDescription(`<@${interaction.user.id}>, gib das neue Captcha ein:`)
+          .setColor("Blurple")
+          .setImage("attachment://captcha.png")
+          .setFooter({
+            text: "Verifikation • Powered by Evil's Helfer",
+            iconURL: interaction.client.user.displayAvatarURL(),
+          });
+
+        return await interaction.update({
+          embeds: [embed],
+          components: [row],
+          files: [attachment],
+        });
       }
 
-      const modal = new ModalBuilder()
-        .setCustomId(`captcha_submit_${expectedAnswer}_${userId}`)
-        .setTitle("🔐 Captcha-Eingabe");
+      // BUTTON → MODAL
+      if (type === "verify" && action === "correct") {
+        if (interaction.user.id !== userId)
+          return await interaction.reply({
+            content: "⛔ Nicht für dich gedacht!",
+            ephemeral: true,
+          });
 
-      const input = new TextInputBuilder()
-        .setCustomId("captcha_input")
-        .setLabel("Gib den Captcha-Text ein")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
+        const modal = new ModalBuilder()
+          .setCustomId(`captcha_submit_${expected}_${userId}`)
+          .setTitle("🔐 Captcha eingeben");
 
-      const row = new ActionRowBuilder().addComponents(input);
-      modal.addComponents(row);
+        const input = new TextInputBuilder()
+          .setCustomId("captcha_input")
+          .setLabel("Was steht im Bild?")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
 
-      return await interaction.showModal(modal);
-    }
+        const row = new ActionRowBuilder().addComponents(input);
+        modal.addComponents(row);
 
-    if (type === "captcha" && action === "refresh") {
-      if (interaction.user.id !== expectedAnswer) {
-        return interaction.reply({ content: "⛔ Das ist nicht für dich gedacht.", ephemeral: true });
+        return await interaction.showModal(modal);
       }
-
-      const { image, answer } = await generateCaptcha();
-      const attachment = new AttachmentBuilder(image, { name: "captcha.png" });
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`verify_correct_${answer}_${interaction.user.id}`)
-          .setLabel("Antwort eingeben")
-          .setStyle("Success"),
-        new ButtonBuilder()
-          .setCustomId(`captcha_refresh_${interaction.user.id}`)
-          .setLabel("🔁 Neues Captcha")
-          .setStyle("Secondary")
-      );
-
-      const embed = new EmbedBuilder()
-        .setTitle("🔄 Neues Captcha")
-        .setDescription(`<@${interaction.user.id}>, hier ist dein neues Captcha.`)
-        .setColor("Blurple")
-        .setImage("attachment://captcha.png")
-        .setFooter({ text: "Verifikation • Powered by Evil's Helfer", iconURL: interaction.client.user.displayAvatarURL() })
-        .setTimestamp();
-
-      return await interaction.update({ embeds: [embed], components: [row], files: [attachment] });
     }
 
+    // MODAL SUBMIT (Antwort wurde eingegeben)
     if (interaction.isModalSubmit()) {
-      const [modalType, expectedAnswer, userId] = interaction.customId.split("_");
+      const [type, answer, userId] = interaction.customId.split("_");
 
-      if (modalType === "captcha" && interaction.user.id === userId) {
-        const userInput = interaction.fields.getTextInputValue("captcha_input");
+      if (type === "captcha") {
+        const input = interaction.fields.getTextInputValue("captcha_input");
 
-        if (userInput.trim().toLowerCase() === expectedAnswer.trim().toLowerCase()) {
+        if (interaction.user.id !== userId) {
+          return await interaction.reply({
+            content: "⛔ Nicht für dich gedacht!",
+            ephemeral: true,
+          });
+        }
+
+        const given = input.trim().toLowerCase();
+        const correct = answer.trim().toLowerCase();
+
+        if (given === correct) {
           const configPath = path.join(__dirname, "../data/verificationConfig.json");
           const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
@@ -76,22 +108,21 @@ module.exports = {
             await interaction.member.roles.add(role).catch(() => {});
           }
 
-          await interaction.update({
-            content: `✅ <@${userId}> wurde erfolgreich verifiziert.`,
-            embeds: [],
-            components: []
+          await interaction.reply({
+            content: `✅ <@${userId}> erfolgreich verifiziert!`,
+            ephemeral: false,
           });
 
           setTimeout(() => {
-            interaction.message.delete().catch(() => {});
+            interaction.message?.delete().catch(() => {});
           }, 3000);
         } else {
-          await interaction.reply({
-            content: "❌ Falscher Captcha-Code. Bitte versuche es erneut mit `!verify`.",
-            ephemeral: true
+          return await interaction.reply({
+            content: "❌ Falscher Code. Starte neu mit `!verify`.",
+            ephemeral: true,
           });
         }
       }
     }
-  }
+  },
 };
