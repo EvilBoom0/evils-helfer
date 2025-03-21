@@ -1,19 +1,34 @@
-const svgCaptcha = require("svg-captcha");
-const sharp = require("sharp");
+const { createCanvas, loadImage } = require("canvas");
+const fs = require("fs");
+const path = require("path");
+
+function generateCaptchaText() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let result = "";
+  for (let i = 0; i < 5; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
 
 async function generateCaptcha() {
-  const captcha = svgCaptcha.create({
-    noise: 3,
-    color: true,
-    size: 6,
-    ignoreChars: "0o1ilI"
-  });
+  const captchaText = generateCaptchaText();
+  const canvas = createCanvas(250, 100);
+  const ctx = canvas.getContext("2d");
 
-  const pngBuffer = await sharp(Buffer.from(captcha.data)).png().toBuffer();
+  ctx.fillStyle = "#f0f0f0";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "40px Sans";
+  ctx.fillStyle = "#000000";
+  ctx.fillText(captchaText, 50, 65);
+
+  const buffer = canvas.toBuffer("image/png");
+  const filePath = path.join(__dirname, `../temp/captcha-${Date.now()}.png`);
+  fs.writeFileSync(filePath, buffer);
 
   return {
-    image: pngBuffer,
-    answer: captcha.text
+    image: filePath,
+    answer: captchaText,
   };
 }
 
