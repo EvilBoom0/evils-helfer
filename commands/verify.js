@@ -40,5 +40,21 @@ module.exports = {
       .setTimestamp();
 
     await message.reply({ embeds: [embed], components: [row], files: [attachment] });
+
+const { userMessages } = require("../events/interactionCreate");
+
+if (!userMessages.has(message.author.id)) userMessages.set(message.author.id, []);
+userMessages.get(message.author.id).push(botMsg, userMsg);
+
+// Nach 15 Minuten automatisch löschen
+setTimeout(() => {
+  if (userMessages.has(message.author.id)) {
+    for (const msg of userMessages.get(message.author.id)) {
+      msg.delete().catch(() => {});
+    }
+    userMessages.delete(message.author.id);
+  }
+}, 15 * 60 * 1000);
+
   }
 };
