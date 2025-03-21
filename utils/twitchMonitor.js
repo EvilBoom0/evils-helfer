@@ -2,6 +2,7 @@ const fetch = require("node-fetch");
 const fs = require("fs");
 const path = require("path");
 const { EmbedBuilder } = require("discord.js");
+
 const configPath = path.join(__dirname, "../data/twitchConfig.json");
 
 function loadConfig() {
@@ -38,14 +39,15 @@ async function sendLiveEmbed(client, config, streamData) {
   if (!channel) return console.log("❌ Ankündigungskanal nicht gefunden.");
 
   const embed = new EmbedBuilder()
-    .setTitle(`🔴 ${streamData.user_name} ist jetzt LIVE!`)
+    .setTitle(`${streamData.user_name} ist jetzt LIVE auf Twitch!`)
     .setURL(`https://twitch.tv/${streamData.user_login}`)
+    .setDescription(`${streamData.title}`)
     .addFields(
-      { name: "📌 Titel", value: streamData.title || "Kein Titel", inline: false },
-      { name: "🎮 Kategorie", value: streamData.game_name || "Unbekannt", inline: true },
+      { name: streamData.game_name || "Unbekannte Kategorie", value: " " }
     )
     .setImage(`https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamData.user_login.toLowerCase()}-640x360.jpg`)
     .setColor(0x9146FF)
+    .setFooter({ text: "Powered by Evil's Helfer Bot", iconURL: client.user.displayAvatarURL() })
     .setTimestamp();
 
   await channel.send({ content: "@everyone", embeds: [embed] });
@@ -65,7 +67,7 @@ async function monitorTwitch(client) {
       config.lastAnnounced = now;
       saveConfig(config);
     }
-  }, 60 * 1000);
+  }, 60 * 1000); // prüft jede Minute
 }
 
 module.exports = { monitorTwitch };
