@@ -2,34 +2,66 @@ const { createCanvas, loadImage } = require("canvas");
 const fs = require("fs");
 const path = require("path");
 
-function generateCaptchaText() {
+function generateCaptchaText(length = 6) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let result = "";
-  for (let i = 0; i < 5; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  let text = "";
+  for (let i = 0; i < length; i++) {
+    text += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return result;
+  return text;
 }
 
-async function generateCaptcha() {
-  const captchaText = generateCaptchaText();
-  const canvas = createCanvas(250, 100);
+function randomColor() {
+  const r = () => Math.floor(Math.random() * 150);
+  return `rgb(${r()},${r()},${r()})`;
+}
+
+async function generateCaptcha(userId) {
+  const width = 200;
+  const height = 80;
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#f0f0f0";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = "40px Sans";
-  ctx.fillStyle = "#000000";
-  ctx.fillText(captchaText, 50, 65);
+  // Hintergrund
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
+  const text = generateCaptchaText();
+  ctx.font = "36px sans-serif";
+
+  // Buchstaben
+  for (let i = 0; i < text.length; i++) {
+    ctx.fillStyle = randomColor();
+    const angle = (Math.random() - 0.5) * 0.5;
+    ctx.save();
+    ctx.translate(25 + i * 30, 50);
+    ctx.rotate(angle);
+    ctx.fillText(text[i], 0, 0);
+    ctx.restore();
+  }
+
+  // Rauschen & Linien
+  for (let i = 0; i < 100; i++) {
+    ctx.fillStyle = randomColor();
+    ctx.beginPath();
+    ctx.arc(Math.random() * width, Math.random() * height, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 5; i++) {
+    ctx.strokeStyle = randomColor();
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * width, Math.random() * height);
+    ctx.lineTo(Math.random() * width, Math.random() * height);
+    ctx.stroke();
+  }
+
+  // Datei speichern
+  const dir = path.join(__dirname, "..", "data", "captcha");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, `${userId}.png`);
   const buffer = canvas.toBuffer("image/png");
-  const filePath = path.join(__dirname, `../temp/captcha-${Date.now()}.png`);
   fs.writeFileSync(filePath, buffer);
-
-  return {
-    image: filePath,
-    answer: captchaText,
-  };
+  return { filePath, text };
 }
 
 module.exports = { generateCaptcha };
