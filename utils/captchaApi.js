@@ -6,8 +6,7 @@ async function generateCaptcha() {
     noise: 3,
     color: true,
     size: 6,
-    background: '#ffffff',
-    ignoreChars: '0o1ilI' // besser lesbar
+    ignoreChars: "0o1ilI"
   });
 
   const pngBuffer = await sharp(Buffer.from(captcha.data)).png().toBuffer();
