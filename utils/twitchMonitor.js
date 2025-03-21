@@ -13,59 +13,58 @@ function saveConfig(config) {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
 }
 
-async function checkTwitchStatus(twitchChannel) {
+async function getStreamData(channelName) {
   const clientId = process.env.TWITCH_CLIENT_ID;
-  const oauthToken = process.env.TWITCH_OAUTH_TOKEN;
-  const url = `https://api.twitch.tv/helix/streams?user_login=${twitchChannel}`;
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "Client-ID": clientId,
-        "Authorization": `Bearer ${oauthToken}`
-      }
-    });
-    if (!response.ok) {
-      console.error("Twitch API Fehler:", response.statusText);
-      return false;
+  const token = process.env.TWITCH_OAUTH_TOKEN;
+  const url = `https://api.twitch.tv/helix/streams?user_login=${channelName}`;
+  const res = await fetch(url, {
+    headers: {
+      "Client-ID": clientId,
+      "Authorization": `Bearer ${token}`
     }
-    const data = await response.json();
-    return data.data && data.data.length > 0;
-  } catch (error) {
-    console.error("Fehler beim Überprüfen des Twitch-Status:", error);
-    return false;
+  });
+
+  if (!res.ok) {
+    console.error("[Twitch API]", res.statusText);
+    return null;
   }
+
+  const data = await res.json();
+  return data.data && data.data.length > 0 ? data.data[0] : null;
 }
 
-async function sendAnnouncement(client, config) {
+async function sendLiveEmbed(client, config, streamData) {
   const channel = client.channels.cache.get(config.announcementChannel);
-  if (!channel) {
-    console.error("Ankündigungskanal nicht gefunden:", config.announcementChannel);
-    return;
-  }
-  const twitchUrl = `https://twitch.tv/${config.twitchChannel}`;
-  const previewUrl = `https://static-cdn.jtvnw.net/previews-ttv/live_user${config.twitchChannel.toLowerCase()}-320x180.jpg`;
+  if (!channel) return console.log("❌ Ankündigungskanal nicht gefunden.");
+
   const embed = new EmbedBuilder()
-    .setTitle(`LIVE NOW: ${config.twitchChannel.toUpperCase()} is streaming!`)
-    .setURL(twitchUrl)
-    .setDescription(`@everyone, der Stream ist jetzt live!\nKlicke [hier](${twitchUrl}) um beizutreten.`)
-    .setImage(previewUrl)
+    .setTitle(`🔴 ${streamData.user_name} ist jetzt LIVE!`)
+    .setURL(`https://twitch.tv/${streamData.user_login}`)
+    .addFields(
+      { name: "📌 Titel", value: streamData.title || "Kein Titel", inline: false },
+      { name: "🎮 Kategorie", value: streamData.game_name || "Unbekannt", inline: true },
+      { name: "👥 Zuschauer", value: streamData.viewer_count.toString(), inline: true }
+    )
+    .setImage(`https://static-cdn.jtvnw.net/previews-ttv/live_user_${streamData.user_login.toLowerCase()}-640x360.jpg`)
     .setColor(0x9146FF)
     .setTimestamp();
+
   await channel.send({ content: "@everyone", embeds: [embed] });
 }
 
 async function monitorTwitch(client) {
   setInterval(async () => {
     const config = loadConfig();
-    if (!config || !config.twitchChannel || !config.announcementChannel) return;
-    const isLive = await checkTwitchStatus(config.twitchChannel);
-    if (isLive) {
-      const now = Date.now();
-      if (!config.lastAnnounced || now - config.lastAnnounced >= 30 * 60 * 1000) {
-        await sendAnnouncement(client, config);
-        config.lastAnnounced = now;
-        saveConfig(config);
-      }
+    if (!config?.twitchChannel || !config?.announcementChannel) return;
+
+    const stream = await getStreamData(config.twitchChannel);
+    const now = Date.now();
+    const cooldown = 30 * 60 * 1000;
+
+    if (stream && (!config.lastAnnounced || now - config.lastAnnounced > cooldown)) {
+      await sendLiveEmbed(client, config, stream);
+      config.lastAnnounced = now;
+      saveConfig(config);
     }
   }, 60 * 1000);
 }
