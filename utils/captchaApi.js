@@ -1,75 +1,90 @@
 const { createCanvas, registerFont } = require("canvas");
-const { v4: uuidv4 } = require("uuid");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
 const https = require("https");
+const { writeFileSync } = require("fs");
 
-const fontUrl = "https://fonts.gstatic.com/s/rubikdoodleshadow/v1/bWti7ejTQT7Z2a2V-Gg4ewRPlkZ5iNGODKk.woff2";
-const fontPath = path.join("/tmp", "captchaFont.woff2");
-
-function downloadFontIfNotExists() {
-  return new Promise((resolve, reject) => {
-    if (fs.existsSync(fontPath)) return resolve(fontPath);
-
-    const file = fs.createWriteStream(fontPath);
-    https.get(fontUrl, (res) => {
-      if (res.statusCode !== 200) return reject(new Error("Font download failed."));
-      res.pipe(file);
-      file.on("finish", () => file.close(() => resolve(fontPath)));
-    }).on("error", (err) => reject(err));
-  });
+function generateRandomText(length = 6) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let text = "";
+  for (let i = 0; i < length; i++) {
+    text += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return text;
 }
 
-function getRandomText(length = 5) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-}
-
-function drawCaptcha(text) {
-  const width = 300, height = 100;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-
-  // Hintergrund
-  ctx.fillStyle = "#1e1e2f";
-  ctx.fillRect(0, 0, width, height);
-
-  // Rauschen
-  for (let i = 0; i < 30; i++) {
-    ctx.strokeStyle = `rgba(255,255,255,${Math.random()})`;
+function generateNoise(ctx, width, height) {
+  for (let i = 0; i < 120; i++) {
+    ctx.strokeStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.5)`;
     ctx.beginPath();
     ctx.moveTo(Math.random() * width, Math.random() * height);
     ctx.lineTo(Math.random() * width, Math.random() * height);
     ctx.stroke();
   }
 
-  // Verzerrte Buchstaben
-  ctx.font = "40px CustomCaptchaFont";
-  ctx.fillStyle = "#ffffff";
-  for (let i = 0; i < text.length; i++) {
-    const angle = (Math.random() - 0.5) * 0.7;
-    ctx.save();
-    ctx.translate(50 + i * 45, 60 + Math.random() * 10);
-    ctx.rotate(angle);
-    ctx.fillText(text[i], 0, 0);
-    ctx.restore();
+  for (let i = 0; i < 100; i++) {
+    ctx.fillStyle = `rgba(${Math.random() * 255}, ${Math.random() * 255}, ${Math.random() * 255}, 0.3)`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * width, Math.random() * height, Math.random() * 3, 0, Math.PI * 2);
+    ctx.fill();
   }
+}
 
-  return canvas.toBuffer("image/png");
+function distortText(ctx, text, width, height) {
+  ctx.save();
+  ctx.translate(15, height / 2);
+  for (let i = 0; i < text.length; i++) {
+    const angle = (Math.random() - 0.5) * 1.0;
+    const fontSize = 36 + Math.floor(Math.random() * 8);
+    ctx.rotate(angle);
+    ctx.font = `${fontSize}px 'Comic Sans MS', 'Arial Black', 'Courier New'`;
+    ctx.fillStyle = `rgb(${Math.random() * 80}, ${Math.random() * 80}, ${Math.random() * 80})`;
+    ctx.fillText(text[i], i * 30, Math.random() * 15 - 7);
+    ctx.rotate(-angle);
+  }
+  ctx.restore();
+}
+
+function downloadGoogleFont() {
+  return new Promise((resolve, reject) => {
+    const url = "https://fonts.gstatic.com/s/comicsansms/v1/UZvY77WzV9CzYNu2r4ez.ttf"; // Dummy URL, not real
+    const dest = path.join(__dirname, "../temp", "captchaFont.ttf");
+    https.get(url, (res) => {
+      const fileStream = fs.createWriteStream(dest);
+      res.pipe(fileStream);
+      fileStream.on("finish", () => {
+        registerFont(dest, { family: "CustomCaptchaFont" });
+        resolve();
+      });
+    }).on("error", reject);
+  });
 }
 
 async function generateCaptcha() {
-  await downloadFontIfNotExists();
-  registerFont(fontPath, { family: "CustomCaptchaFont" });
+  const width = 280;
+  const height = 110;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
 
-  const answer = getRandomText();
-  const image = drawCaptcha(answer);
+  ctx.fillStyle = "#f2f2f2";
+  ctx.fillRect(0, 0, width, height);
 
-  const filename = `captcha_${uuidv4()}.png`;
-  const imagePath = path.join(__dirname, "../temp", filename);
-  fs.writeFileSync(imagePath, image);
+  const text = generateRandomText();
+  distortText(ctx, text, width, height);
+  generateNoise(ctx, width, height);
 
-  return { image: imagePath, answer };
+  const buffer = canvas.toBuffer("image/png");
+  const filename = `${uuidv4()}.png`;
+  const filePath = path.join(__dirname, "../temp", filename);
+  fs.writeFileSync(filePath, buffer);
+
+  return {
+    image: filePath,
+    answer: text,
+  };
 }
 
-module.exports = { generateCaptcha };
+module.exports = {
+  generateCaptcha,
+};
