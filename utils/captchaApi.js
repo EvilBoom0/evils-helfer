@@ -1,5 +1,4 @@
 const { createCanvas } = require("canvas");
-const { randomBytes } = require("crypto");
 
 function generateRandomText(length = 5) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -16,11 +15,9 @@ function generateCaptcha() {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // Hintergrund
   ctx.fillStyle = "#f0f0f0";
   ctx.fillRect(0, 0, width, height);
 
-  // Rauschen
   for (let i = 0; i < 150; i++) {
     ctx.fillStyle = `rgba(${Math.random()*255}, ${Math.random()*255}, ${Math.random()*255}, 0.3)`;
     ctx.beginPath();
@@ -39,7 +36,6 @@ function generateCaptcha() {
     ctx.restore();
   }
 
-  // Verzerrungslinien
   for (let i = 0; i < 4; i++) {
     ctx.strokeStyle = `rgba(${Math.random()*255}, ${Math.random()*255}, ${Math.random()*255}, 0.8)`;
     ctx.beginPath();
