@@ -1,20 +1,31 @@
-const { AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
-const { generateCaptcha } = require("../utils/captchaApi");
+const {
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  ActionRowBuilder,
+  AttachmentBuilder,
+} = require("discord.js");
 const fs = require("fs");
 const path = require("path");
+const { generateCaptcha } = require("../utils/captchaApi");
+const { userMessages } = require("../events/interactionCreate");
 
 module.exports = {
   name: "verify",
-  description: "Starte den Verifizierungsprozess",
+  description: "Startet den Verifizierungsprozess",
   async execute(message, args, client) {
     const configPath = path.join(__dirname, "../data/verificationConfig.json");
     if (!fs.existsSync(configPath)) {
-      return message.reply("❌ Der Verifizierungsprozess ist nicht eingerichtet.");
+      return message.reply("⚠️ Verifizierung ist nicht eingerichtet. Nutze `!verificationsetup`.");
     }
 
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (!config.channelId || !config.roleId) {
+      return message.reply("⚠️ Die Verifizierungskonfiguration ist unvollständig.");
+    }
+
     if (message.channel.id !== config.channelId) {
-      return message.reply("⚠️ Bitte benutze den Verifizierungschannel.");
+      return message.reply("⚠️ Verifizierung nur im vorgesehenen Channel möglich.");
     }
 
     const { image, answer } = await generateCaptcha();
@@ -22,39 +33,47 @@ module.exports = {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`verify_correct_${answer}_${message.author.id}`)
+        .setCustomId(`verify:correct:${answer}:${message.author.id}`)
         .setLabel("Antwort eingeben")
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`captcha_refresh_${message.author.id}`)
+        .setCustomId(`captcha:refresh:${message.author.id}`)
         .setLabel("🔁 Neues Captcha")
         .setStyle(ButtonStyle.Secondary)
     );
 
     const embed = new EmbedBuilder()
-      .setTitle("🔐 Captcha-Verifizierung")
-      .setDescription(`Hey <@${message.author.id}>!\nBitte gib den Text aus dem Bild ein.`)
-      .setColor("Blurple")
+      .setTitle("🔐 Verifizierung")
+      .setDescription(`Hey <@${message.author.id}>, um Zugang zum Server zu bekommen,\nmusst du das Captcha lösen.`)
       .setImage("attachment://captcha.png")
-      .setFooter({ text: "Verifikation • Powered by Evil's Helfer", iconURL: client.user.displayAvatarURL() })
+      .setColor("Blurple")
+      .setFooter({
+        text: "Verifikation • Powered by Evil's Helfer",
+        iconURL: client.user.displayAvatarURL(),
+      })
       .setTimestamp();
 
-    await message.reply({ embeds: [embed], components: [row], files: [attachment] });
+    const botMsg = await message.channel.send({
+      content: `<@${message.author.id}>`,
+      embeds: [embed],
+      components: [row],
+      files: [attachment],
+    });
 
-const { userMessages } = require("../events/interactionCreate");
+    const userMsg = message;
 
-if (!userMessages.has(message.author.id)) userMessages.set(message.author.id, []);
-userMessages.get(message.author.id).push(botMsg, userMsg);
+    if (!userMessages.has(message.author.id)) userMessages.set(message.author.id, []);
+    userMessages.get(message.author.id).push(botMsg, userMsg);
 
-// Nach 15 Minuten automatisch löschen
-setTimeout(() => {
-  if (userMessages.has(message.author.id)) {
-    for (const msg of userMessages.get(message.author.id)) {
-      msg.delete().catch(() => {});
-    }
-    userMessages.delete(message.author.id);
-  }
-}, 15 * 60 * 1000);
+    setTimeout(() => {
+      if (userMessages.has(message.author.id)) {
+        for (const msg of userMessages.get(message.author.id)) {
+          msg.delete().catch(() => {});
+        }
+        userMessages.delete(message.author.id);
+      }
+    }, 15 * 60 * 1000); // 15 Minuten
 
-  }
+    return; // Verhindert „Command erfolgreich ausgeführt“-Fehler
+  },
 };
