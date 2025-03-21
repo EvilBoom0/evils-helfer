@@ -1,39 +1,44 @@
 const {
+  Events,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
-  EmbedBuilder,
   AttachmentBuilder,
+  EmbedBuilder,
   ButtonBuilder,
   ButtonStyle,
 } = require("discord.js");
-const { generateCaptcha } = require("../utils/captchaApi");
 const fs = require("fs");
 const path = require("path");
-
-const userMessages = new Map(); // speichert Nachrichten pro User zum Löschen
+const { generateCaptcha } = require("../utils/captchaApi");
+const { userMessages } = require("./guildMemberAdd");
 
 module.exports = {
-  name: "interactionCreate",
+  name: Events.InteractionCreate,
   async execute(interaction) {
     if (interaction.isButton()) {
-      const [type, action, answerOrId, userId] = interaction.customId.split("_");
+      const [type, action, ...data] = interaction.customId.split(":");
 
       if (type === "captcha" && action === "refresh") {
-        if (interaction.user.id !== userId)
-          return interaction.reply({ content: "⛔ Nicht für dich gedacht!", ephemeral: true });
+        const userId = data[0];
+        if (interaction.user.id !== userId) {
+          return interaction.reply({
+            content: "⛔ Nicht für dich gedacht!",
+            ephemeral: true,
+          });
+        }
 
         const { image, answer } = await generateCaptcha();
         const attachment = new AttachmentBuilder(image, { name: "captcha.png" });
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId(`verify_correct_${answer}_${userId}`)
+            .setCustomId(`verify:correct:${answer}:${userId}`)
             .setLabel("Antwort eingeben")
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
-            .setCustomId(`captcha_refresh_${userId}`)
+            .setCustomId(`captcha:refresh:${userId}`)
             .setLabel("🔁 Neues Captcha")
             .setStyle(ButtonStyle.Secondary)
         );
@@ -58,64 +63,71 @@ module.exports = {
       }
 
       if (type === "verify" && action === "correct") {
-        if (interaction.user.id !== userId)
-          return interaction.reply({ content: "⛔ Nicht für dich gedacht!", ephemeral: true });
+        const answer = data[0];
+        const userId = data[1];
+        if (interaction.user.id !== userId) {
+          return interaction.reply({
+            content: "⛔ Nicht für dich gedacht!",
+            ephemeral: true,
+          });
+        }
 
         const modal = new ModalBuilder()
-          .setCustomId(`captcha_submit_${answerOrId}_${userId}`)
-          .setTitle("🔐 Captcha eingeben");
+          .setCustomId(`verifyModal:${answer}:${userId}`)
+          .setTitle("🔐 Captcha Eingabe");
 
         const input = new TextInputBuilder()
-          .setCustomId("captcha_input")
-          .setLabel("Was steht im Bild?")
+          .setCustomId("captchaInput")
+          .setLabel("Gib den Captcha-Code ein")
           .setStyle(TextInputStyle.Short)
+          .setPlaceholder("z. B. XKD91")
           .setRequired(true);
 
         const row = new ActionRowBuilder().addComponents(input);
         modal.addComponents(row);
-
         await interaction.showModal(modal);
+
         return;
       }
     }
 
     if (interaction.isModalSubmit()) {
-      const [type, correctAnswer, userId] = interaction.customId.split("_");
-      if (type !== "captcha" || interaction.user.id !== userId) return;
+      const [modalType, expectedAnswer, userId] = interaction.customId.split(":");
+      if (modalType !== "verifyModal") return;
 
-      const userInput = interaction.fields.getTextInputValue("captcha_input")?.trim()?.toLowerCase();
-      if (userInput !== correctAnswer.toLowerCase()) {
-        return await interaction.reply({
-          content: "❌ Falscher Code. Starte neu mit `!verify`.",
+      if (interaction.user.id !== userId) {
+        return interaction.reply({
+          content: "⛔ Nicht für dich gedacht!",
           ephemeral: true,
         });
       }
 
-      // ✅ Richtig beantwortet
-      const configPath = path.join(__dirname, "../data/verificationConfig.json");
-      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      const role = interaction.guild.roles.cache.get(config.roleId);
-
-      if (role) {
-        await interaction.member.roles.add(role).catch(() => {});
-      }
-
-      await interaction.reply({
-        content: `✅ <@${userId}> erfolgreich verifiziert!`,
-        ephemeral: false,
-      });
-
-      // 🧹 Nachrichten löschen
-      const userMsgData = userMessages.get(userId);
-      if (userMsgData) {
-        for (const msg of userMsgData) {
-          msg.delete().catch(() => {});
+      const userInput = interaction.fields.getTextInputValue("captchaInput").trim();
+      if (userInput.toLowerCase() === expectedAnswer.toLowerCase()) {
+        const configPath = path.join(__dirname, "../data/verificationConfig.json");
+        const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        const role = interaction.guild.roles.cache.get(config.roleId);
+        if (role) {
+          await interaction.member.roles.add(role).catch(console.error);
         }
-        userMessages.delete(userId);
+
+        if (userMessages.has(userId)) {
+          for (const msg of userMessages.get(userId)) {
+            msg.delete().catch(() => {});
+          }
+          userMessages.delete(userId);
+        }
+
+        await interaction.reply({
+          content: "✅ Du wurdest erfolgreich verifiziert!",
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: "❌ Falscher Code! Bitte versuche es erneut mit einem neuen Captcha.",
+          ephemeral: true,
+        });
       }
     }
   },
 };
-
-// Zum Speichern von Nachrichten aus verify.js (Ergänzung dort)
-module.exports.userMessages = userMessages;
