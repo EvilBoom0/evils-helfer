@@ -19,22 +19,35 @@ module.exports = {
     if (!message.member.permissions.has("ManageGuild"))
       return message.reply("❌ Du brauchst `Manage Server`, um das zu tun.");
 
-    if (!args[0]) return message.reply("⚠️ Gib einen Twitch-Kanal an.");
-    if (args[0] === "setup") {
-      const config = loadConfig();
-      if (!config.twitchChannel || !config.announcementChannel)
-        return message.reply("❌ Twitch-Kanal oder Ankündigungskanal nicht gesetzt.");
-      const channel = client.channels.cache.get(config.announcementChannel);
-      if (!channel) return message.reply("❌ Der gespeicherte Discord-Channel existiert nicht.");
-      const embed = new EmbedBuilder()
-        .setTitle("✅ Testnachricht")
-        .setDescription(`Wenn dieser Embed ankommt, ist alles korrekt eingerichtet!`)
-        .setURL(`https://twitch.tv/${config.twitchChannel}`)
-        .setImage(`https://static-cdn.jtvnw.net/previews-ttv/live_user_${config.twitchChannel.toLowerCase()}-320x180.jpg`)
-        .setColor(0x9146FF)
-        .setTimestamp();
-      return channel.send({ content: "@everyone", embeds: [embed] });
-    }
+if (args[0] === "setup") {
+  const config = loadConfig();
+  if (!config.twitchChannel || !config.announcementChannel)
+    return message.reply("❌ Twitch-Kanal oder Ankündigungskanal nicht gesetzt.");
+
+  const channel = client.channels.cache.get(config.announcementChannel);
+  if (!channel) return message.reply("❌ Der gespeicherte Discord-Channel existiert nicht.");
+
+  const fakeStream = {
+    user_name: config.twitchChannel,
+    user_login: config.twitchChannel,
+    title: "🔥 Test-Stream: Evil's Helfer rockt den Chat!",
+    game_name: "Just Chatting"
+  };
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🔴 ${fakeStream.user_name} ist jetzt LIVE!`)
+    .setURL(`https://twitch.tv/${fakeStream.user_login}`)
+    .addFields(
+      { name: "📌 Titel", value: fakeStream.title, inline: false },
+      { name: "🎮 Kategorie", value: fakeStream.game_name, inline: true }
+    )
+    .setImage(`https://static-cdn.jtvnw.net/previews-ttv/live_user_${fakeStream.user_login.toLowerCase()}-640x360.jpg`)
+    .setColor(0x9146FF)
+    .setFooter({ text: "Powered by Evil's Helfer Bot", iconURL: client.user.displayAvatarURL() })
+    .setTimestamp();
+
+  return channel.send({ content: "@everyone", embeds: [embed] });
+}
 
     const twitchChannel = args[0].toLowerCase();
     const discordChannelId = args[1];
