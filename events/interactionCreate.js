@@ -9,6 +9,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require("discord.js");
+
 const fs = require("fs");
 const path = require("path");
 const { generateCaptcha } = require("../utils/captchaApi");
@@ -23,10 +24,7 @@ module.exports = {
       if (type === "captcha" && action === "refresh") {
         const userId = data[0];
         if (interaction.user.id !== userId) {
-          return interaction.reply({
-            content: "⛔ Nicht für dich gedacht!",
-            ephemeral: true,
-          });
+          return interaction.reply({ content: "⛔ Nicht für dich gedacht!", ephemeral: true });
         }
 
         const { image, answer } = await generateCaptcha();
@@ -45,7 +43,7 @@ module.exports = {
 
         const embed = new EmbedBuilder()
           .setTitle("🔐 Neues Captcha")
-          .setDescription(`<@${userId}>, gib das neue Captcha ein:`)
+          .setDescription(`<@${userId}>, gib den neuen Captcha-Code ein:`)
           .setColor("Blurple")
           .setImage("attachment://captcha.png")
           .setFooter({
@@ -58,7 +56,6 @@ module.exports = {
           components: [row],
           files: [attachment],
         });
-
         return;
       }
 
@@ -66,10 +63,7 @@ module.exports = {
         const answer = data[0];
         const userId = data[1];
         if (interaction.user.id !== userId) {
-          return interaction.reply({
-            content: "⛔ Nicht für dich gedacht!",
-            ephemeral: true,
-          });
+          return interaction.reply({ content: "⛔ Nicht für dich gedacht!", ephemeral: true });
         }
 
         const modal = new ModalBuilder()
@@ -86,7 +80,6 @@ module.exports = {
         const row = new ActionRowBuilder().addComponents(input);
         modal.addComponents(row);
         await interaction.showModal(modal);
-
         return;
       }
     }
@@ -94,19 +87,18 @@ module.exports = {
     if (interaction.isModalSubmit()) {
       const [modalType, expectedAnswer, userId] = interaction.customId.split(":");
       if (modalType !== "verifyModal") return;
-
       if (interaction.user.id !== userId) {
-        return interaction.reply({
-          content: "⛔ Nicht für dich gedacht!",
-          ephemeral: true,
-        });
+        return interaction.reply({ content: "⛔ Nicht für dich gedacht!", ephemeral: true });
       }
 
       const userInput = interaction.fields.getTextInputValue("captchaInput").trim();
-      if (userInput.toLowerCase() === expectedAnswer.toLowerCase()) {
+      const correct = userInput.toLowerCase() === expectedAnswer.toLowerCase();
+
+      if (correct) {
         const configPath = path.join(__dirname, "../data/verificationConfig.json");
         const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
         const role = interaction.guild.roles.cache.get(config.roleId);
+
         if (role) {
           await interaction.member.roles.add(role).catch(console.error);
         }
@@ -122,11 +114,14 @@ module.exports = {
           content: "✅ Du wurdest erfolgreich verifiziert!",
           ephemeral: true,
         });
+
+        return;
       } else {
         await interaction.reply({
           content: "❌ Falscher Code! Bitte versuche es erneut mit einem neuen Captcha.",
           ephemeral: true,
         });
+        return;
       }
     }
   },
