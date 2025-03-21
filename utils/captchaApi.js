@@ -1,73 +1,66 @@
-const { createCanvas, loadImage } = require('canvas');
-const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { createCanvas, loadImage, registerFont } = require("canvas");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+
+registerFont(path.join(__dirname, "../assets/fonts/arial.ttf"), { family: "Arial" });
 
 function generateRandomText(length = 6) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let text = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    text += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return result;
+  return text;
 }
 
-function getRandomColor() {
-  const r = Math.floor(Math.random() * 150);
-  const g = Math.floor(Math.random() * 150);
-  const b = Math.floor(Math.random() * 150);
-  return `rgb(${r}, ${g}, ${b})`;
-}
-
-function generateCaptcha() {
-  const width = 300;
-  const height = 120;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, width, height);
-
-  const text = generateRandomText();
-
-  // Hintergrundrauschen
-  for (let i = 0; i < 200; i++) {
-    ctx.fillStyle = getRandomColor();
-    ctx.beginPath();
-    ctx.arc(Math.random() * width, Math.random() * height, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Störlinien
-  for (let i = 0; i < 5; i++) {
-    ctx.strokeStyle = getRandomColor();
+function generateNoise(ctx, width, height) {
+  for (let i = 0; i < 50; i++) {
+    ctx.strokeStyle = `rgba(${Math.floor(Math.random() * 255)},${Math.floor(
+      Math.random() * 255
+    )},${Math.floor(Math.random() * 255)},0.8)`;
     ctx.beginPath();
     ctx.moveTo(Math.random() * width, Math.random() * height);
     ctx.lineTo(Math.random() * width, Math.random() * height);
     ctx.stroke();
   }
+}
 
-  // Verzerrter Text
-  ctx.font = 'bold 48px Sans';
+async function generateCaptcha() {
+  const width = 220;
+  const height = 80;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+
+  // Hintergrund
+  ctx.fillStyle = "#f0f0f0";
+  ctx.fillRect(0, 0, width, height);
+
+  // Noise
+  generateNoise(ctx, width, height);
+
+  // Text
+  const text = generateRandomText();
+  ctx.font = "36px Arial";
+  ctx.fillStyle = "#000";
   for (let i = 0; i < text.length; i++) {
     const letter = text[i];
-    const x = 30 + i * 40 + Math.random() * 10 - 5;
-    const y = 70 + Math.random() * 10 - 5;
-    ctx.fillStyle = getRandomColor();
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(30 + i * 30, 50 + Math.random() * 10 - 5);
     ctx.rotate((Math.random() - 0.5) * 0.5);
     ctx.fillText(letter, 0, 0);
     ctx.restore();
   }
 
-  const filename = `captcha_${uuidv4()}.png`;
-  const filePath = path.join(__dirname, '..', 'temp', filename);
+  // Captcha exportieren
+  const buffer = canvas.toBuffer("image/png");
+  const filename = `captcha-${crypto.randomUUID()}.png`;
 
-  const buffer = canvas.toBuffer('image/png');
-  fs.writeFileSync(filePath, buffer);
-
-  return { text, filePath };
+  return {
+    imageBuffer: buffer,
+    text,
+    filename
+  };
 }
 
-module.exports = { generateCaptcha };
+module.exports = generateCaptcha;
