@@ -1,35 +1,33 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
+const { AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js");
+const { generateCaptcha } = require("../utils/captchaApi");
 const fs = require("fs");
 const path = require("path");
 const configPath = path.join(__dirname, "../data/verificationConfig.json");
 
 module.exports = {
   name: "verify",
-  description: "Starte den Verifizierungsprozess",
+  description: "Startet den Verifizierungsprozess",
   async execute(message) {
-    if (!fs.existsSync(configPath)) return message.reply("❌ Der Verifizierungsprozess ist nicht eingerichtet.");
+    if (!fs.existsSync(configPath)) return;
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    if (message.channel.id !== config.channelId) return message.reply("⚠️ Bitte nutze den richtigen Verifizierungskanal!");
+    if (message.channel.id !== config.channelId) return message.reply("⚠️ Bitte benutze den richtigen Channel zur Verifizierung!");
 
-    const solutions = ["🍎", "🍌", "🍒", "🍇"];
-    const correct = solutions[Math.floor(Math.random() * solutions.length)];
+    const { image, answer } = await generateCaptcha();
 
-    const shuffled = [...solutions].sort(() => 0.5 - Math.random());
+    const imageBuffer = Buffer.from(image, "base64");
+    const attachment = new AttachmentBuilder(imageBuffer, { name: "captcha.png" });
 
     const row = new ActionRowBuilder().addComponents(
-      shuffled.map(symbol =>
-        new ButtonBuilder()
-          .setCustomId(`verify_${symbol}_${correct}_${message.author.id}`)
-          .setLabel(symbol)
-          .setStyle(ButtonStyle.Secondary)
-      )
+      new ButtonBuilder().setCustomId(`verify_correct_${answer}_${message.author.id}`).setLabel("Antwort eingeben").setStyle(ButtonStyle.Primary)
     );
 
     const embed = new EmbedBuilder()
-      .setTitle("🔐 Verifizierung")
-      .setDescription(`Klicke auf **${correct}**, um zu beweisen, dass du kein Bot bist.`)
-      .setColor("Blurple");
+      .setTitle("🔐 Captcha-Verifizierung")
+      .setDescription("Bitte gib den **Text aus dem Bild** ein. Klicke unten auf den Button, um deine Lösung einzugeben.")
+      .setColor("Blurple")
+      .setImage("attachment://captcha.png")
+      .setFooter({ text: "Verifikation erforderlich", iconURL: "https://i.imgur.com/KNnXoTU.png" });
 
-    await message.reply({ embeds: [embed], components: [row] });
+    await message.reply({ embeds: [embed], components: [row], files: [attachment] });
   }
 };
