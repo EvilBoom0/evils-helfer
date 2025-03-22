@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { EmbedBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 const { generateCaptcha } = require("../utils/captchaApi");
@@ -12,6 +12,14 @@ module.exports = {
       const configPath = path.join(__dirname, "../data/verificationConfig.json");
       if (!fs.existsSync(configPath)) return message.reply("❌ Verifizierung nicht eingerichtet. Bitte zuerst `!verificationsetup` verwenden.");
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+
+      // ❗ Nur im festgelegten Channel erlaubt
+      if (message.channel.id !== config.channelId) {
+        return message.reply({
+          content: `❌ Bitte benutze den Verifizierungs-Channel <#${config.channelId}> für die Verifizierung.`,
+          ephemeral: true
+        });
+      }
 
       const captcha = await generateCaptcha();
       const attachment = new AttachmentBuilder(captcha.image, { name: "captcha.png" });
