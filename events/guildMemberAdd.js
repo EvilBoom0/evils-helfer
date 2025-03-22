@@ -3,16 +3,19 @@ const fs = require("fs");
 const path = require("path");
 const configPath = path.join(__dirname, "../data/verificationConfig.json");
 
-const userMessages = new Map(); // Exportieren wir gleich mit für die Interaktion
+const userMessages = new Map(); // für automatische Löschung & Zugriff von interactionCreate.js
 
 module.exports = {
   userMessages,
   name: "guildMemberAdd",
   async execute(member) {
     if (!fs.existsSync(configPath)) return;
+
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
     const channel = member.guild.channels.cache.get(config.channelId);
     if (!channel) return;
+
+    const botAvatar = member.client.user.displayAvatarURL();
 
     const embed = new EmbedBuilder()
       .setTitle("👋 Willkommen auf dem Server!")
@@ -20,16 +23,16 @@ module.exports = {
       .setColor("Blurple")
       .setFooter({
         text: "Verifikation • Powered by Evil's Helfer",
-            iconURL: interaction.client.user.displayAvatarURL()
+        iconURL: botAvatar
       });
 
     const sentMsg = await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
 
-    // Speichern für spätere automatische Löschung
+    // Nachricht merken für spätere Löschung
     if (!userMessages.has(member.id)) userMessages.set(member.id, []);
     userMessages.get(member.id).push(sentMsg);
 
-    // Löschen nach 15 Minuten falls nicht verifiziert
+    // Löscht alle Nachrichten nach 15 Minuten (wenn nicht verifiziert)
     setTimeout(() => {
       if (userMessages.has(member.id)) {
         for (const msg of userMessages.get(member.id)) {
