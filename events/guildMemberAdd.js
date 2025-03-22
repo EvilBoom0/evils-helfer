@@ -19,8 +19,8 @@ module.exports = {
       .setDescription(`Hey <@${member.id}>, um Zugriff auf den Server zu bekommen, musst du kurz beweisen, dass du kein Bot bist.\n\n**Gib einfach \`!verify\` hier im Channel ein!**`)
       .setColor("Blurple")
       .setFooter({
-        text: "Sichere Verifizierung aktiviert",
-        iconURL: "https://i.imgur.com/KNnXoTU.png",
+        text: "Verifikation • Powered by Evil's Helfer",
+            iconURL: interaction.client.user.displayAvatarURL()
       });
 
     const sentMsg = await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
